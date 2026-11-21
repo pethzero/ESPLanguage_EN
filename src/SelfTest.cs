@@ -85,6 +85,8 @@ static class SelfTest
                 if (line.StartsWith("ApiKey=")) tr.ApiKey = line[7..];
                 if (line.StartsWith("LocalUrl=") && line.Length > 9) tr.LocalUrl = line[9..];
                 if (line.StartsWith("LocalModel=") && line.Length > 11) tr.LocalModel = line[11..];
+                if (line.StartsWith("ClaudeKey=")) tr.ClaudeKey = line[10..];
+                if (line.StartsWith("ClaudeModel=") && line.Length > 12) tr.ClaudeModel = line[12..];
             }
         var (res, error) = tr.TranslateAsync(items.Select(i => i.Text).ToList(), lang, true, null).GetAwaiter().GetResult();
         int n = 0;

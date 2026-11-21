@@ -50,7 +50,7 @@ Close xEdit and the game before saving a plugin they have open.
 | Cards at the top | Count of texts / not English / changed / invalid. Click *Not English* or *Changed* to filter. |
 | From | *Auto* picks the language of each name (Hangul -> Korean, Kana -> Japanese, Han -> Chinese). |
 | Engine | Which translator Auto EN uses; see below. |
-| Settings | API key (DeepL / Google Cloud), Local AI server and model. Saved in `ESPLanguage_EN.ini` next to the exe. |
+| Settings | API keys (DeepL / Google Cloud / Claude), Claude model, Local AI server and model. Saved in `ESPLanguage_EN.ini` next to the exe. |
 | Title Case | `Cherry Blossom Wig` instead of `cherry blossom wig`. |
 | Include DESC | Also lists descriptions (book text, item descriptions). |
 | Text in file | How the bytes are decoded. *Auto* = UTF-8, then Korean 949 / Chinese 936 / Big5 / Japanese 932. Change it only if Original is still garbage. |
@@ -62,6 +62,7 @@ Close xEdit and the game before saving a plugin they have open.
 | Engine | Cost | Notes |
 |---|---|---|
 | **Local AI** | free, offline | A model on your own PC through Ollama, LM Studio or the NLLB server below. Best choice if you have a GPU. |
+| **Claude (API key)** | paid per use, small for names | Anthropic's Claude: the best quality for game names. Key from [console.anthropic.com](https://console.anthropic.com) -> API keys, pasted in **Settings**. Model: `claude-opus-5-5` (default, best) or `claude-haiku-5-5` (much cheaper). |
 | **DeepL (API key)** | free up to 500,000 characters / month | Sign up for *DeepL API Free* at deepl.com; the key ends with `:fx`. |
 | **Google Cloud (API key)** | paid after the free tier | Cloud Translation API key. |
 | **Google (free)** | free | No key, but Google often refuses automated requests (error 429). |
@@ -154,6 +155,10 @@ Source code is in `src/` (C# WinForms, no external packages).
   1. ติดตั้ง Python 3.10–3.12
   2. รัน `tools\install_nllb.bat` แล้วตามด้วย `start_nllb.bat`
   3. ในโปรแกรมตั้ง URL ใน Settings เป็น `http://localhost:8000/v1`
+- **Claude:** คุณภาพดีที่สุดสำหรับชื่อไอเทมในเกม แต่เสียค่าใช้จ่ายตามการใช้งาน (สำหรับชื่อสั้นๆ ถือว่าน้อย)
+  1. สร้าง API key ที่ console.anthropic.com → API keys
+  2. นำ key มาใส่ใน **Settings**
+  3. เลือกโมเดล: `claude-opus-5-5` (ค่าเริ่มต้น ดีที่สุด) หรือ `claude-haiku-5-5` (ถูกกว่ามาก)
 - **DeepL:** ฟรีเดือนละ 500,000 ตัวอักษร สมัคร DeepL API Free ที่ deepl.com แล้วนำ key มาใส่ใน Settings
 - **Google (free):** ไม่ต้องใช้ key แต่มักโดน Google บล็อก (ขึ้น error 429)
 - **Export / Import:** ส่งออกเป็นไฟล์ TSV ไปแปลที่ไหนก็ได้ (Excel, ChatGPT, Claude) แล้วนำเข้ากลับ

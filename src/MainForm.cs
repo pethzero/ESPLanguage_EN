@@ -33,6 +33,7 @@ public sealed class MainForm : Form
     readonly ToolStripComboBox cboEngine = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
     string apiKey = "";
     string localUrl = Translator.DefaultLocalUrl, localModel = Translator.DefaultLocalModel;
+    string claudeKey = "", claudeModel = ClaudeEngine.DefaultModel;
     readonly ToolStripTextBox txtSearch = new() { Width = 240, BorderStyle = BorderStyle.FixedSingle };
     readonly ToolStripButton chkForeign = new("Non-English only") { CheckOnClick = true, Checked = true };
     readonly ToolStripButton chkChanged = new("Changed only") { CheckOnClick = true };
@@ -75,7 +76,8 @@ public sealed class MainForm : Form
         cboEngine.ToolTipText = "Google (free): no key, but Google may refuse automated requests (429).\n" +
                                 "DeepL (API key): DeepL API Free = 500,000 characters / month at no cost.\n" +
                                 "Google Cloud (API key): Cloud Translation API.\n" +
-                                "Local AI: Qwen / Llama on your own PC via Ollama or LM Studio (offline, free). Set it up in Settings.";
+                                "Local AI: Qwen / Llama on your own PC via Ollama or LM Studio (offline, free). Set it up in Settings.\n" +
+                                "Claude (API key): Anthropic's Claude, best quality for game names. Key and model in Settings.";
         cboEnc.SelectedIndex = 0;
         cboLang.SelectedIndex = 0;
         foreach (var c in new[] { cboEnc, cboLang, cboEngine }) Theme.DarkCombo(c);
@@ -553,6 +555,8 @@ public sealed class MainForm : Form
         tr.ApiKey = apiKey;
         tr.LocalUrl = localUrl;
         tr.LocalModel = localModel;
+        tr.ClaudeKey = claudeKey;
+        tr.ClaudeModel = claudeModel;
         SetBusy(true);
         try
         {
@@ -594,7 +598,7 @@ public sealed class MainForm : Form
         using var f = new Form
         {
             Text = "Engine settings", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            ClientSize = new Size(560, 400), MaximizeBox = false, MinimizeBox = false, Font = Font, ShowInTaskbar = false,
+            ClientSize = new Size(560, 540), MaximizeBox = false, MinimizeBox = false, Font = Font, ShowInTaskbar = false,
         };
         Label Head(string t, int top) => new() { Text = t, Left = 16, Top = top, AutoSize = true, Font = Theme.UiBold };
         Label Note(string t, int top, int h) => new() { Text = t, Left = 16, Top = top, Width = 528, Height = h };
@@ -604,16 +608,25 @@ public sealed class MainForm : Form
                       "Google Cloud: console.cloud.google.com → Cloud Translation API → Credentials → API key.", 38, 36);
         var key = new TextBox { Left = 16, Top = 78, Width = 528, Text = apiKey, UseSystemPasswordChar = true };
 
-        var h2 = Head("Local AI  ·  Ollama / LM Studio / llama.cpp (offline, free)", 124);
+        var h3 = Head("Claude  ·  Anthropic API", 124);
+        var n3 = Note("console.anthropic.com → API keys → Create key (paid per use). Opus 5.5 = best quality, Haiku 5.5 = much cheaper.", 148, 20);
+        var ck = new Label { Text = "API key", Left = 16, Top = 176, AutoSize = true };
+        var ckey = new TextBox { Left = 110, Top = 172, Width = 434, Text = claudeKey, UseSystemPasswordChar = true };
+        var cm = new Label { Text = "Model", Left = 16, Top = 210, AutoSize = true };
+        var cmodel = new ComboBox { Left = 110, Top = 206, Width = 300, Text = claudeModel, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat };
+        cmodel.Items.AddRange(ClaudeEngine.Models);
+
+        const int dy = 130;   // Local AI block below the Claude block
+        var h2 = Head("Local AI  ·  Ollama / LM Studio / llama.cpp (offline, free)", 124 + dy);
         var n2 = Note("Ollama: install from ollama.com, then in a terminal:  ollama pull qwen2.5:7b\n" +
                       "LM Studio: load a model → Developer → Start server, URL http://localhost:1234/v1\n" +
-                      "Good for Korean / Chinese / Japanese → English: Qwen 2.5 (7B or 14B). Llama works too.", 148, 52);
-        var lu = new Label { Text = "Server URL", Left = 16, Top = 212, AutoSize = true };
-        var url = new TextBox { Left = 110, Top = 208, Width = 434, Text = localUrl };
-        var lm = new Label { Text = "Model", Left = 16, Top = 248, AutoSize = true };
-        var model = new ComboBox { Left = 110, Top = 244, Width = 300, Text = localModel, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat };
-        var find = new Button { Text = "Find models", Left = 420, Top = 242, Width = 124 };
-        var info = new Label { Left = 110, Top = 280, Width = 434, Height = 40, ForeColor = Theme.TextFaint };
+                      "Good for Korean / Chinese / Japanese → English: Qwen 2.5 (7B or 14B). Llama works too.", 148 + dy, 52);
+        var lu = new Label { Text = "Server URL", Left = 16, Top = 212 + dy, AutoSize = true };
+        var url = new TextBox { Left = 110, Top = 208 + dy, Width = 434, Text = localUrl };
+        var lm = new Label { Text = "Model", Left = 16, Top = 248 + dy, AutoSize = true };
+        var model = new ComboBox { Left = 110, Top = 244 + dy, Width = 300, Text = localModel, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat };
+        var find = new Button { Text = "Find models", Left = 420, Top = 242 + dy, Width = 124 };
+        var info = new Label { Left = 110, Top = 280 + dy, Width = 434, Height = 40, ForeColor = Theme.TextFaint };
         find.Click += async (_, _) =>
         {
             find.Enabled = false;
@@ -638,12 +651,13 @@ public sealed class MainForm : Form
             finally { find.Enabled = true; }
         };
 
-        var ok = new Button { Text = "Save", Left = 362, Top = 352, Width = 88, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "Cancel", Left = 456, Top = 352, Width = 88, DialogResult = DialogResult.Cancel };
-        var foot = new Label { Text = "Saved in ESPLanguage_EN.ini next to the exe.", Left = 16, Top = 358, AutoSize = true };
-        f.Controls.AddRange(new Control[] { h1, n1, key, h2, n2, lu, url, lm, model, find, info, foot, ok, cancel });
+        var ok = new Button { Text = "Save", Left = 362, Top = 352 + dy, Width = 88, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Cancel", Left = 456, Top = 352 + dy, Width = 88, DialogResult = DialogResult.Cancel };
+        var foot = new Label { Text = "Saved in ESPLanguage_EN.ini next to the exe.", Left = 16, Top = 358 + dy, AutoSize = true };
+        f.Controls.AddRange(new Control[] { h1, n1, key, h3, n3, ck, ckey, cm, cmodel, h2, n2, lu, url, lm, model, find, info, foot, ok, cancel });
         Theme.Apply(f);
-        foreach (var hl in new[] { h1, h2 }) hl.ForeColor = Theme.Text;
+        foreach (var hl in new[] { h1, h2, h3 }) hl.ForeColor = Theme.Text;
+        cmodel.BackColor = Theme.Surface2;
         info.ForeColor = Theme.TextFaint;
         foot.ForeColor = Theme.TextFaint;
         model.BackColor = Theme.Surface2;
@@ -656,6 +670,8 @@ public sealed class MainForm : Form
         f.CancelButton = cancel;
         if (f.ShowDialog(this) != DialogResult.OK) return;
         apiKey = key.Text.Trim();
+        claudeKey = ckey.Text.Trim();
+        claudeModel = string.IsNullOrWhiteSpace(cmodel.Text) ? ClaudeEngine.DefaultModel : cmodel.Text.Trim();
         localUrl = string.IsNullOrWhiteSpace(url.Text) ? Translator.DefaultLocalUrl : url.Text.Trim();
         localModel = string.IsNullOrWhiteSpace(model.Text) ? Translator.DefaultLocalModel : model.Text.Trim();
         SaveIni();
@@ -799,6 +815,8 @@ public sealed class MainForm : Form
                 case "ApiKey": apiKey = v; break;
                 case "LocalUrl": if (v.Length > 0) localUrl = v; break;
                 case "LocalModel": if (v.Length > 0) localModel = v; break;
+                case "ClaudeKey": claudeKey = v; break;
+                case "ClaudeModel": if (v.Length > 0) claudeModel = v; break;
             }
         }
     }
@@ -810,7 +828,7 @@ public sealed class MainForm : Form
             File.WriteAllLines(IniPath, new[]
             {
                 "LastDir=" + lastDir, "Lang=" + cboLang.SelectedItem, "TitleCase=" + (chkTitle.Checked ? 1 : 0), "Desc=" + (chkDesc.Checked ? 1 : 0),
-                "Engine=" + cboEngine.SelectedItem, "ApiKey=" + apiKey, "LocalUrl=" + localUrl, "LocalModel=" + localModel,
+                "Engine=" + cboEngine.SelectedItem, "ApiKey=" + apiKey, "LocalUrl=" + localUrl, "LocalModel=" + localModel, "ClaudeKey=" + claudeKey, "ClaudeModel=" + claudeModel,
             });
         }
         catch { }

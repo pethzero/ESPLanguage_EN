@@ -16,7 +16,10 @@ public sealed class Translator
     public const string GlossaryFile = "glossary.txt";
     public const string CacheFile = "translation_cache.txt";
 
-    public static readonly string[] Engines = { "Google (free)", "DeepL (API key)", "Google Cloud (API key)", "Local AI (Ollama / LM Studio)" };
+    public static readonly string[] Engines = { "Google (free)", "DeepL (API key)", "Google Cloud (API key)", "Local AI (Ollama / LM Studio)", "Claude (API key)" };
+    public string ClaudeKey = "";
+    public string ClaudeModel = ClaudeEngine.DefaultModel;
+    public static bool IsClaude(string engine) => engine == Engines[4];
     public const string DefaultLocalUrl = "http://localhost:11434/v1";
     public const string DefaultLocalModel = "qwen2.5:7b";
     public string Engine = Engines[0];
@@ -158,9 +161,10 @@ public sealed class Translator
 
     async Task TranslateBatch(List<string> batch, string lang)
     {
-        if (IsLocal(Engine))
+        if (IsLocal(Engine) || IsClaude(Engine))
         {
-            var res = await LocalAi(batch, lang);
+            Func<List<string>, string, Task<List<string>>> ask = IsClaude(Engine) ? ClaudeAi : LocalAi;
+            var res = await ask(batch, lang);
             if (res.Count == batch.Count)
             {
                 for (int i = 0; i < batch.Count; i++) Put(batch[i], res[i]);
@@ -168,7 +172,7 @@ public sealed class Translator
             }
             foreach (var r in batch)                    // the model returned a wrong number of lines: one by one
             {
-                var one = await LocalAi(new List<string> { r }, lang);
+                var one = await ask(new List<string> { r }, lang);
                 if (one.Count > 0) Put(r, one[0]);
             }
             return;
@@ -269,14 +273,22 @@ public sealed class Translator
         return u;
     }
 
+    static string AiSystem(string lang) =>
+        $"You translate names from a Skyrim game mod (items, armor, spells, effects, NPCs) from {LangName(lang)} to English.\n" +
+        "Rules: short natural English game names in Title Case; keep proper names (transliterate them); no notes, no quotes, " +
+        "no explanations. You get a JSON array of strings. Reply with ONLY a JSON array of the English strings, " +
+        "same count and same order.";
+
+    async Task<List<string>> ClaudeAi(List<string> batch, string lang)
+    {
+        string text = await ClaudeEngine.Ask(ClaudeKey, ClaudeModel, AiSystem(lang), JsonSerializer.Serialize(batch, JsonOpts));
+        return ParseList(text, batch.Count);
+    }
+
     async Task<List<string>> LocalAi(List<string> batch, string lang)
     {
         string model = string.IsNullOrWhiteSpace(LocalModel) ? DefaultLocalModel : LocalModel.Trim();
-        string system =
-            $"You translate names from a Skyrim game mod (items, armor, spells, effects, NPCs) from {LangName(lang)} to English.\n" +
-            "Rules: short natural English game names in Title Case; keep proper names (transliterate them); no notes, no quotes, " +
-            "no explanations. You get a JSON array of strings. Reply with ONLY a JSON array of the English strings, " +
-            "same count and same order.";
+        string system = AiSystem(lang);
         var body = new Dictionary<string, object>
         {
             ["model"] = model,
