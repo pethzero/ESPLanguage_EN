@@ -61,7 +61,9 @@ class Translator:
         t = time.time()
         dtype = torch.float16 if device == "cuda" else torch.float32
         self.tok = AutoTokenizer.from_pretrained(name)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(name, torch_dtype=dtype).to(device).eval()
+        # NLLB repos ship .bin weights on main; without use_safetensors=False transformers also fetches an
+        # auto-converted .safetensors copy from a PR branch = the same 17.6 GB downloaded twice
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(name, dtype=dtype, use_safetensors=False).to(device).eval()
         self.lock = threading.Lock()
         print(f"Ready in {time.time() - t:.0f}s", flush=True)
 
