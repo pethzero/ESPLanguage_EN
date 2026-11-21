@@ -16,7 +16,8 @@ Model licence: CC-BY-NC 4.0 (non-commercial use).
 """
 import argparse
 import json
-import re
+import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +41,23 @@ def source_lang(text: str, han_default: str) -> str:
     return han_default if han else "kor_Hang"
 
 
+SENTENCE_END = (".", "。", "!", "！", "?", "？")
+
+
+def as_name(src: str, en: str) -> str:
+    """NLLB writes sentences ("The Force Field."); mod texts are mostly names ("Force Field").
+    Only applied when the source itself does not end like a sentence (DESC texts keep their punctuation)."""
+    en = en.strip()
+    if src.rstrip().endswith(SENTENCE_END):
+        return en
+    en = en.rstrip(".。 ")
+    for lead in ("The ", "the ", "A ", "An ", "It's ", "It is "):
+        if en.startswith(lead) and len(en) > len(lead) + 2:
+            en = en[len(lead):]
+            break
+    return en[:1].upper() + en[1:] if en else en
+
+
 def parse_items(content: str):
     """ESPLanguage_EN sends a JSON array of strings; plain lines work too."""
     content = content.strip()
@@ -60,10 +78,27 @@ class Translator:
         print(f"Loading {name} on {device} (the first start downloads the model) ...", flush=True)
         t = time.time()
         dtype = torch.float16 if device == "cuda" else torch.float32
-        self.tok = AutoTokenizer.from_pretrained(name)
-        # NLLB repos ship .bin weights on main; without use_safetensors=False transformers also fetches an
-        # auto-converted .safetensors copy from a PR branch = the same 17.6 GB downloaded twice
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(name, dtype=dtype, use_safetensors=False).to(device).eval()
+        # fast copy: the first start saves the model in the dtype used here as .safetensors next to this script
+        # (3.3B fp16 = 6.6 GB instead of 17.6 GB of fp32 .bin); later starts load that in seconds
+        local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models",
+                             name.rstrip("/").split("/")[-1] + ("-fp16" if dtype == torch.float16 else ""))
+        if os.path.isfile(os.path.join(local, "config.json")):
+            print(f"Using the local copy {local}", flush=True)
+            self.tok = AutoTokenizer.from_pretrained(local)
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(local, dtype=dtype).to(device).eval()
+        else:
+            self.tok = AutoTokenizer.from_pretrained(name)
+            # NLLB repos ship .bin weights on main; without use_safetensors=False transformers also fetches an
+            # auto-converted .safetensors copy from a PR branch = the same 17.6 GB downloaded twice
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(name, dtype=dtype, use_safetensors=False).to(device).eval()
+            if not os.path.isdir(name):
+                try:
+                    print(f"Saving a fast-loading copy to {local} ...", flush=True)
+                    self.model.save_pretrained(local, safe_serialization=True)
+                    self.tok.save_pretrained(local)
+                    print("Saved. The next start loads from it (you may delete the hf folder to free space).", flush=True)
+                except Exception as e:  # disk full etc.: keep running from the download
+                    print(f"Could not save the local copy: {e}", flush=True)
         self.lock = threading.Lock()
         print(f"Ready in {time.time() - t:.0f}s", flush=True)
 
@@ -83,7 +118,7 @@ class Translator:
                     gen = self.model.generate(**enc, forced_bos_token_id=self.tok.convert_tokens_to_ids(TARGET),
                                               num_beams=4, max_new_tokens=256)
                     for i, s in zip(part, self.tok.batch_decode(gen, skip_special_tokens=True)):
-                        out[i] = s.strip()
+                        out[i] = as_name(texts[i], s)
         return out
 
 
@@ -130,6 +165,12 @@ def make_handler(tr: Translator):
 
 
 def main():
+    # the Windows console code page (cp1252 / cp874...) cannot print Korean / Chinese / Japanese
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", default="facebook/nllb-200-3.3B",
                     help="facebook/nllb-200-3.3B | nllb-200-distilled-1.3B | nllb-200-distilled-600M")

@@ -94,7 +94,9 @@ NLLB-200 is a translation-only model (licence CC-BY-NC 4.0, non-commercial). [to
 | `facebook/nllb-200-distilled-1.3B` | 5.5 GB | ~3 GB |
 | `facebook/nllb-200-distilled-600M` | 2.5 GB | ~1.5 GB, or CPU |
 
-NLLB is strong on sentences (DESC) but weaker on short item names; `glossary.txt` fixes words it gets wrong.
+The first start loads the downloaded model (about 5 minutes for 3.3B) and saves a fp16 copy in `models\` (6.3 GB). Later starts load that copy in seconds; you can then delete the `hf\` folder to free 17 GB.
+
+Tested on an RTX 4070 SUPER: 58 EvilFall Dragon names in 11 seconds. NLLB is fast and free but literal. It gets common words right (`Battle Suit`, `High Heels`, `Energy Light Blade`) and misses game terms (`일제 사격` -> "One Shot" instead of *Volley Fire*, `다리 방어구` -> "Bridge Defense" instead of *Leg Armor*). Add those words to `glossary.txt`; they are used before NLLB. For the best names use Claude or Qwen.
 
 ## Limits
 - Edits names (FULL) and descriptions (DESC) only.

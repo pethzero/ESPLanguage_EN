@@ -359,7 +359,7 @@ public sealed class Translator
             {
                 401 or 403 => " (wrong API key?)", 456 => " (monthly character limit reached)", 429 => " (too many requests, try again later)", _ => "",
             };
-            throw new HttpRequestException($"{name} answered {(int)resp.StatusCode} {resp.ReasonPhrase}{hint}: {body[..Math.Min(body.Length, 200)]}");
+            throw new HttpRequestException($"{name} answered {(int)resp.StatusCode} {resp.ReasonPhrase}{hint}: {body[..Math.Min(body.Length, 200)]}", null, resp.StatusCode);
         }
         return JsonDocument.Parse(body);
     }
