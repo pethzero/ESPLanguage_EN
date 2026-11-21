@@ -1,0 +1,41 @@
+﻿# ESPLanguage_EN glossary: your own translations, used before Google.
+# One per line:  source = English
+# A whole name part ("벚꽃 밤의 환상") or single words (when every word of a part is listed, they are joined).
+# Edit this file freely, then press "Reload glossary" (or restart).
+
+# Korean
+가발 = Wig
+머리 = Hair
+신발 = Shoes
+부츠 = Boots
+장갑 = Gloves
+치마 = Skirt
+스커트 = Skirt
+스타킹 = Stockings
+넥타이 = Tie
+드레스 = Dress
+속옷 = Underwear
+갑옷 = Armor
+투구 = Helmet
+목걸이 = Necklace
+귀걸이 = Earrings
+반지 = Ring
+
+# Chinese
+假发 = Wig
+头发 = Hair
+鞋子 = Shoes
+靴子 = Boots
+手套 = Gloves
+裙子 = Skirt
+短裙 = Short Skirt
+丝袜 = Stockings
+袜子 = Socks
+领带 = Tie
+连衣裙 = Dress
+内衣 = Underwear
+盔甲 = Armor
+头盔 = Helmet
+项链 = Necklace
+耳环 = Earrings
+戒指 = Ring

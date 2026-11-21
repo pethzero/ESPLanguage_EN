@@ -1,0 +1,19 @@
+# build output (the exe is published as a GitHub Release, not committed)
+src/bin/
+src/obj/
+release/
+ESPLanguage_EN.exe
+
+# personal / local files
+ESPLanguage_EN.ini
+translation_cache.txt
+backups/
+*.esp
+*.esm
+*.esl
+*.tsv
+*.log.txt
+
+# python
+__pycache__/
+venv/
