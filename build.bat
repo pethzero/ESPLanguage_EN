@@ -5,12 +5,13 @@ cd /d "%~dp0"
 set VER=1.1.0
 dotnet publish src\ESPLanguage_EN.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%VER%
 if errorlevel 1 (echo. & echo BUILD FAILED & pause & exit /b 1)
-copy /y "src\bin\Release\net8.0-windows\win-x64\publish\ESPLanguage_EN.exe" "%~dp0ESPLanguage_EN.exe" >nul
+copy /y "src\bin\Release\net8.0-windows\win-x64\publish\ESPLanguage_EN.exe" "%~dp0ESPLanguage_EN.exe" >nul || echo NOTE: ESPLanguage_EN.exe is open, so the copy next to build.bat was not replaced. The zip below is still up to date.
 
 rem release\ESPLanguage_EN_v<ver>.zip = exe + README + glossary (no ini: it can hold your API key)
 if exist release\pkg rmdir /s /q release\pkg
 mkdir release\pkg\ESPLanguage_EN
-copy /y ESPLanguage_EN.exe release\pkg\ESPLanguage_EN\ >nul
+rem zip the fresh build output, not the copy next to build.bat (that one may be open and locked)
+copy /y "src\bin\Release\net8.0-windows\win-x64\publish\ESPLanguage_EN.exe" release\pkg\ESPLanguage_EN\ >nul
 copy /y README.md release\pkg\ESPLanguage_EN\ >nul
 copy /y glossary.txt release\pkg\ESPLanguage_EN\ >nul
 rem retry: antivirus often locks a new exe for a few seconds
