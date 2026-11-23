@@ -111,6 +111,13 @@ NLLB-200 is a translation-only model (licence CC-BY-NC 4.0, non-commercial). [to
 | `facebook/nllb-200-distilled-1.3B` | 5.5 GB | ~3 GB |
 | `facebook/nllb-200-distilled-600M` | 2.5 GB | ~1.5 GB, or CPU |
 
+**Is it running? How do I stop it?** The server holds about 7 GB of GPU memory while it runs.
+- **Settings → NLLB-200** shows *Running* (model, device, minutes idle) or *Not running*, with **Start server**, **Stop server** and **Check**.
+- `stop_nllb.bat` (in the install folder) stops it: it asks the server to stop, and if the server does not answer it ends the `python` process that holds port 8000. Another program on that port is left alone.
+- Closing the server window or pressing Ctrl+C in it also stops it.
+- It **stops by itself after 30 minutes without use**. Change it: `start_nllb.bat --idle-minutes 60`, or `--idle-minutes 0` to never stop.
+- Only one server can run per port: a second `start_nllb.bat` says so and exits before loading anything.
+
 The first start loads the downloaded model (about 5 minutes for 3.3B) and saves a fp16 copy in `models\` (6.3 GB). Later starts load that copy in seconds; you can then delete the `hf\` folder to free 17 GB.
 
 Tested on an RTX 4070 SUPER: 58 EvilFall Dragon names in 11 seconds. NLLB is fast and free but literal. It gets common words right (`Battle Suit`, `High Heels`, `Energy Light Blade`) and misses game terms (`일제 사격` -> "One Shot" instead of *Volley Fire*, `다리 방어구` -> "Bridge Defense" instead of *Leg Armor*). Add those words to `glossary.txt`; they are used before NLLB. For the best names use Claude or Qwen.
@@ -182,6 +189,11 @@ Source code is in `src/` (C# WinForms, no external packages).
   1. ติดตั้ง Python 3.10–3.12 แล้วรัน `tools\install_nllb.bat`
   2. **Settings → NLLB-200** → ตั้ง Server folder เป็นโฟลเดอร์ที่ติดตั้ง (เช่น `E:\nllb`) → กด **Start server**
   3. รอหน้าต่างเซิร์ฟเวอร์ขึ้นว่า `Ready` แล้วกด **Test**
+  4. **ดูว่ายังรันอยู่ไหม / หยุดยังไง:** เซิร์ฟเวอร์ใช้หน่วยความจำการ์ดจอประมาณ 7 GB ตลอดเวลาที่รัน
+     - หน้า **Settings → NLLB-200** บอกว่า Running หรือ Not running และมีปุ่ม **Stop server**
+     - หรือดับเบิลคลิก `stop_nllb.bat` ในโฟลเดอร์ที่ติดตั้ง หรือปิดหน้าต่างเซิร์ฟเวอร์ / กด Ctrl+C ในหน้าต่างนั้น
+     - ถ้าไม่มีการใช้งาน 30 นาที เซิร์ฟเวอร์จะหยุดเอง (เปลี่ยนได้ด้วย `start_nllb.bat --idle-minutes 60` หรือ `0` เพื่อไม่ให้หยุดเอง)
+     - เปิดซ้อน 2 ตัวไม่ได้ ตัวที่สองจะแจ้งว่ามีเซิร์ฟเวอร์รันอยู่แล้ว และปิดตัวเองก่อนโหลดโมเดล
 - **DeepL:** ฟรีเดือนละ 500,000 ตัวอักษร สมัคร DeepL API Free ที่ deepl.com แล้วใส่ key ใน **Settings → DeepL** (key ของ DeepL กับ Google Cloud แยกกันแล้ว)
 - **Google (free):** ไม่ต้องใช้ key แต่มักโดน Google บล็อก (ขึ้น error 429)
 - **Export / Import:** ส่งออกเป็นไฟล์ TSV ไปแปลที่ไหนก็ได้ (Excel, ChatGPT, Claude) แล้วนำเข้ากลับ

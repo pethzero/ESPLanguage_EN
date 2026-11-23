@@ -281,19 +281,85 @@ public sealed class SettingsForm : Form
                     if (d.ShowDialog(this) == DialogResult.OK) folder.Text = d.SelectedPath;
                 };
                 f.Row("Server folder", folder, browse);
-                var start = Button("Start server", 130, accent: true);
-                var info = new Label { AutoSize = true, ForeColor = Theme.TextDim, Text = "" };
-                f.Row("", start, info);
-                start.Click += (_, _) =>
+                // server state: checked when the page opens, after Start / Stop, and with Check
+                var state = new Label { AutoSize = false, Width = W - 130, Height = 40, ForeColor = Theme.TextDim, Text = "" };
+                f.Row("Server", state);
+                var start = Button("Start server", 120, accent: true);
+                var stop = Button("Stop server", 110);
+                var check = Button("Check", 80);
+                f.Row("", start, stop, check);
+
+                async Task<bool> Check()
                 {
-                    string bat = Path.Combine(folder.Text.Trim(), "start_nllb.bat");
-                    if (!File.Exists(bat)) { Status(info, false, "start_nllb.bat not found in that folder."); return; }
                     try
                     {
-                        Process.Start(new ProcessStartInfo(bat) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(bat) });
-                        Status(info, true, "Started in its own window. Wait for \"Ready\", then press Test.");
+                        using var doc = await Translator.NllbHealth(url.Text);
+                        var r = doc.RootElement;
+                        string model = r.TryGetProperty("model", out var m) ? m.GetString()?.Split('/').Last() : "?";
+                        string dev = r.TryGetProperty("device", out var d) ? d.GetString() : "?";
+                        int idle = r.TryGetProperty("idle_s", out var i) ? i.GetInt32() / 60 : 0;
+                        double limit = r.TryGetProperty("idle_minutes", out var l) ? l.GetDouble() : 0;
+                        Status(state, true, $"Running  ·  {model} on {dev}  ·  idle {idle} min" +
+                            (limit > 0 ? $"  ·  stops itself after {limit:g} min idle" : "  ·  never stops by itself"));
+                        return true;
                     }
-                    catch (Exception ex) { Status(info, false, ex.Message); }
+                    catch
+                    {
+                        state.ForeColor = Theme.TextDim;
+                        state.Text = "○  Not running  (nothing uses the GPU)";
+                        return false;
+                    }
+                }
+
+                f.Page.VisibleChanged += async (_, _) => { if (f.Page.Visible) await Check(); };
+                check.Click += async (_, _) => await Check();
+
+                start.Click += async (_, _) =>
+                {
+                    if (await Check()) return;                                   // already running: nothing to start
+                    string bat = Path.Combine(folder.Text.Trim(), "start_nllb.bat");
+                    if (!File.Exists(bat)) { Status(state, false, "start_nllb.bat not found: set Server folder (e.g. E:\\nllb)."); return; }
+                    try { Process.Start(new ProcessStartInfo(bat) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(bat) }); }
+                    catch (Exception ex) { Status(state, false, ex.Message); return; }
+                    start.Enabled = false;
+                    var sw = Stopwatch.StartNew();
+                    try
+                    {
+                        while (sw.Elapsed < TimeSpan.FromMinutes(10) && !IsDisposed)     // first start: minutes; later: seconds
+                        {
+                            Status(state, null, $"Starting in its own window ... {sw.Elapsed.TotalSeconds:0} s (loading the model)");
+                            await Task.Delay(2000);
+                            if (IsDisposed) return;
+                            if (await Check()) return;
+                        }
+                        if (!IsDisposed) Status(state, false, "Did not start: look at the server window for the error.");
+                    }
+                    finally { if (!IsDisposed) start.Enabled = true; }
+                };
+
+                stop.Click += async (_, _) =>
+                {
+                    if (!await Check()) return;                                  // nothing to stop
+                    stop.Enabled = false;
+                    try
+                    {
+                        Status(state, null, "Stopping ...");
+                        try { await Translator.NllbStop(url.Text); } catch { }
+                        for (int n = 0; n < 10 && await Check(); n++) await Task.Delay(500);
+                        if (await Check())                                       // did not answer: stop_nllb.bat ends the process
+                        {
+                            string bat = Path.Combine(folder.Text.Trim(), "stop_nllb.bat");
+                            if (File.Exists(bat))
+                            {
+                                var port = new Uri(url.Text.Trim()).Port.ToString();
+                                using var p = Process.Start(new ProcessStartInfo(bat, port + " nopause") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(bat) });
+                                await Task.Run(() => p?.WaitForExit(15000));
+                            }
+                        }
+                        if (!await Check()) Status(state, true, "Stopped. The GPU memory is free.");
+                        else Status(state, false, "Still running: close its window, or run stop_nllb.bat.");
+                    }
+                    finally { stop.Enabled = true; }
                 };
                 f.Add(Note("Install once with tools\\install_nllb.bat (see README), then Start server. The first start loads the model for a few minutes and saves a fast copy; later starts take seconds. Uses about 7 GB of VRAM (3.3B).\n" +
                            "NLLB is literal: add game words it gets wrong to glossary.txt.", 72));

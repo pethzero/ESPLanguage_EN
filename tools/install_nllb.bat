@@ -10,6 +10,7 @@ if /i "%~2"=="cpu" set TORCH_INDEX=https://download.pytorch.org/whl/cpu
 if not exist "%DIR%" mkdir "%DIR%"
 copy /y "%~dp0nllb_server.py" "%DIR%\" >nul
 copy /y "%~dp0start_nllb.bat" "%DIR%\" >nul
+copy /y "%~dp0stop_nllb.bat" "%DIR%\" >nul
 cd /d "%DIR%"
 if not exist venv\Scripts\python.exe python -m venv venv || (echo Python not found & pause & exit /b 1)
 venv\Scripts\python.exe -m pip install --upgrade pip

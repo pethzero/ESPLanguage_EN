@@ -370,6 +370,30 @@ public sealed class Translator
     }
 
     // model names the server has (Ollama: the pulled models)
+    // NLLB server: /health (running? since when, idle how long) and /shutdown (Stop server button)
+    static string ServerRoot(string url)
+    {
+        var u = new Uri(LocalBase(url));
+        return u.GetLeftPart(UriPartial.Authority);
+    }
+
+    public static async Task<JsonDocument> NllbHealth(string url)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, ServerRoot(url) + "/health");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        using var resp = await Http.SendAsync(req, cts.Token);
+        resp.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+    }
+
+    public static async Task NllbStop(string url)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, ServerRoot(url) + "/shutdown");
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var resp = await Http.SendAsync(req, cts.Token);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public static async Task<List<string>> LocalModels(string url)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, LocalBase(url) + "/models");

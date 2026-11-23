@@ -122,7 +122,64 @@ class Translator:
         return out
 
 
-def make_handler(tr: Translator):
+class State:
+    """what /health reports and what the idle timer watches"""
+    def __init__(self, idle_minutes: float):
+        self.started = time.time()
+        self.last_use = time.time()
+        self.requests = 0
+        self.idle_minutes = idle_minutes
+        self.server = None
+
+    def stop(self, why: str):
+        print(f"Stopping: {why}", flush=True)
+        # shutdown() waits for serve_forever to return: call it from another thread
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
+
+class ExclusiveServer(ThreadingHTTPServer):
+    """One server per port. Python's HTTPServer sets SO_REUSEADDR, and on Windows that lets a second
+    copy bind a port that is already in use (two models in GPU memory). Exclusive use instead."""
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        import socket
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):          # Windows
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class LoadingHandler(BaseHTTPRequestHandler):
+    """answers while the model is still loading (the port is taken first)"""
+    def do_GET(self):
+        self._busy()
+
+    def do_POST(self):
+        self._busy()
+
+    def _busy(self):
+        body = json.dumps({"status": "loading", "error": {"message": "the model is still loading, try again in a moment"}}).encode()
+        self.send_response(503)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def idle_watch(state: State):
+    while True:
+        time.sleep(30)
+        idle = (time.time() - state.last_use) / 60
+        if state.idle_minutes > 0 and idle >= state.idle_minutes:
+            state.stop(f"not used for {state.idle_minutes:g} minutes (--idle-minutes)")
+            return
+
+
+def make_handler(tr: Translator, state: State):
     model_id = tr.name.split("/")[-1]
 
     class Handler(BaseHTTPRequestHandler):
@@ -135,14 +192,29 @@ def make_handler(tr: Translator):
             self.wfile.write(body)
 
         def do_GET(self):
-            if self.path.rstrip("/") in ("/v1/models", "/models"):
+            path = self.path.rstrip("/")
+            if path in ("/v1/models", "/models"):
                 self.send_json({"object": "list", "data": [{"id": model_id, "object": "model"}]})
-            else:
-                self.send_json({"status": "ok", "model": tr.name})
+            else:                                        # /health and anything else
+                self.send_json({
+                    "status": "ok", "model": tr.name, "device": tr.device, "pid": os.getpid(),
+                    "uptime_s": int(time.time() - state.started), "idle_s": int(time.time() - state.last_use),
+                    "requests": state.requests, "idle_minutes": state.idle_minutes,
+                })
 
         def do_POST(self):
-            if not self.path.rstrip("/").endswith("/chat/completions"):
+            path = self.path.rstrip("/")
+            if path in ("/shutdown", "/v1/shutdown"):
+                # only from this PC (ESPLanguage_EN's "Stop server" button, stop_nllb.bat)
+                if self.client_address[0] not in ("127.0.0.1", "::1"):
+                    return self.send_json({"error": "shutdown is only allowed from this PC"}, 403)
+                self.send_json({"status": "stopping"})
+                state.stop("asked to stop (/shutdown)")
+                return
+            if not path.endswith("/chat/completions"):
                 return self.send_json({"error": "not found"}, 404)
+            state.last_use = time.time()
+            state.requests += 1
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                 user = [m for m in req.get("messages", []) if m.get("role") == "user"]
@@ -179,10 +251,32 @@ def main():
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--chinese", default="zho_Hans", help="Han-only text: zho_Hans (simplified) or zho_Hant (traditional)")
+    ap.add_argument("--idle-minutes", type=float, default=30,
+                    help="stop by itself after this many minutes without a translation request (0 = never); frees the GPU memory")
     a = ap.parse_args()
+    state = State(a.idle_minutes)
+    try:
+        server = ExclusiveServer((a.host, a.port), LoadingHandler)   # take the port first: fail fast if a server already runs
+    except OSError:
+        print(f"Port {a.port} is already in use: an NLLB server (or another program) is already running.\n"
+              f"Stop it first: stop_nllb.bat, or Settings -> NLLB-200 -> Stop server in ESPLanguage_EN.", flush=True)
+        sys.exit(1)
     tr = Translator(a.model, a.device, a.batch, a.chinese)
-    print(f"ESPLanguage_EN -> Engine: Local AI -> Settings -> URL  http://localhost:{a.port}/v1", flush=True)
-    ThreadingHTTPServer((a.host, a.port), make_handler(tr)).serve_forever()
+    server.RequestHandlerClass = make_handler(tr, state)
+    state.server = server
+    state.last_use = time.time()
+    threading.Thread(target=idle_watch, args=(state,), daemon=True).start()
+    print(f"ESPLanguage_EN -> Settings -> NLLB-200 -> URL  http://localhost:{a.port}/v1", flush=True)
+    print("To stop: close this window, press Ctrl+C, run stop_nllb.bat, or Stop server in ESPLanguage_EN.", flush=True)
+    if a.idle_minutes > 0:
+        print(f"Stops by itself after {a.idle_minutes:g} minutes without use (--idle-minutes 0 = never).", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("Stopping: Ctrl+C", flush=True)
+    finally:
+        server.server_close()
+        print("Stopped. The GPU memory is free.", flush=True)
 
 
 if __name__ == "__main__":
