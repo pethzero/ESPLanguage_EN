@@ -76,18 +76,7 @@ static class SelfTest
                 if (TextCodec.IsForeign(enc)) items.Add((s, r, t));
             }
         }
-        var tr = new Translator(AppContext.BaseDirectory);
-        string ini = System.IO.Path.Combine(AppContext.BaseDirectory, "ESPLanguage_EN.ini");
-        if (File.Exists(ini))
-            foreach (var line in File.ReadAllLines(ini))
-            {
-                if (line.StartsWith("Engine=")) tr.Engine = line[7..];
-                if (line.StartsWith("ApiKey=")) tr.ApiKey = line[7..];
-                if (line.StartsWith("LocalUrl=") && line.Length > 9) tr.LocalUrl = line[9..];
-                if (line.StartsWith("LocalModel=") && line.Length > 11) tr.LocalModel = line[11..];
-                if (line.StartsWith("ClaudeKey=")) tr.ClaudeKey = line[10..];
-                if (line.StartsWith("ClaudeModel=") && line.Length > 12) tr.ClaudeModel = line[12..];
-            }
+        var tr = new Translator(AppContext.BaseDirectory) { S = AppSettings.Load() };   // engine, keys and servers from the ini
         var (res, error) = tr.TranslateAsync(items.Select(i => i.Text).ToList(), lang, true, null).GetAwaiter().GetResult();
         int n = 0;
         for (int i = 0; i < items.Count; i++)

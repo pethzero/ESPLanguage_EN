@@ -2,7 +2,7 @@
 rem Builds ESPLanguage_EN.exe (needs the .NET 8 SDK) and a release zip to share.
 rem The exe is self-contained: the people you give it to do NOT need to install .NET.
 cd /d "%~dp0"
-set VER=1.1.0
+set VER=1.2.0
 dotnet publish src\ESPLanguage_EN.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=%VER%
 if errorlevel 1 (echo. & echo BUILD FAILED & pause & exit /b 1)
 copy /y "src\bin\Release\net8.0-windows\win-x64\publish\ESPLanguage_EN.exe" "%~dp0ESPLanguage_EN.exe" >nul || echo NOTE: ESPLanguage_EN.exe is open, so the copy next to build.bat was not replaced. The zip below is still up to date.

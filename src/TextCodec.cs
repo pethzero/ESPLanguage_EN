@@ -75,10 +75,25 @@ public static class TextCodec
     // text that an English game cannot show as it is
     public static bool IsForeign(string enc) => enc != "ASCII" && enc != "1252";
 
+    // characters Windows-1252 can hold above ASCII (built once; checking a string no longer throws/catches)
+    static readonly HashSet<char> Cp1252 = BuildCp1252();
+
+    static HashSet<char> BuildCp1252()
+    {
+        var set = new HashSet<char>();
+        for (int b = 0x80; b <= 0xFF; b++)
+        {
+            try { set.Add(Win1252Strict.GetString(new[] { (byte)b })[0]); }
+            catch { }                                  // 0x81, 0x8D, 0x8F, 0x90, 0x9D are undefined
+        }
+        return set;
+    }
+
     public static bool CanWrite(string s)
     {
-        try { Win1252Strict.GetBytes(s); return true; }
-        catch { return false; }
+        foreach (char c in s)
+            if (c >= 0x80 && !Cp1252.Contains(c)) return false;
+        return true;
     }
 
     public static byte[] Encode(string s)

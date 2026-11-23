@@ -120,6 +120,15 @@ static class Theme
         c.ComboBox.HandleCreated += (_, _) => { try { SetWindowTheme(c.ComboBox.Handle, "DarkMode_CFD", null); } catch { } };
     }
 
+    // a plain ComboBox in the dialogs: native dark style (dark arrow button and drop-down list)
+    public static void DarkComboBox(ComboBox c)
+    {
+        c.FlatStyle = FlatStyle.Standard;
+        c.BackColor = Surface2;
+        c.ForeColor = Text;
+        c.HandleCreated += (_, _) => { try { SetWindowTheme(c.Handle, "DarkMode_CFD", null); } catch { } };
+    }
+
     public static void DarkSearch(ToolStripTextBox t, int width)
     {
         t.AutoSize = false;

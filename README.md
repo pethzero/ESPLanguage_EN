@@ -45,26 +45,43 @@ Save writes the file in place, so the change stays in the mod's own folder, not 
 
 Close xEdit and the game before saving a plugin they have open.
 
-| Option | What it does |
+### The window
+| Part | What it does |
 |---|---|
 | Cards at the top | Count of texts / not English / changed / invalid. Click *Not English* or *Changed* to filter. |
-| From | *Auto* picks the language of each name (Hangul -> Korean, Kana -> Japanese, Han -> Chinese). |
-| Engine | Which translator Auto EN uses; see below. |
-| Settings | API keys (DeepL / Google Cloud / Claude), Claude model, Local AI server and model. Saved in `ESPLanguage_EN.ini` next to the exe. |
-| Title Case | `Cherry Blossom Wig` instead of `cherry blossom wig`. |
-| Include DESC | Also lists descriptions (book text, item descriptions). |
-| Text in file | How the bytes are decoded. *Auto* = UTF-8, then Korean 949 / Chinese 936 / Big5 / Japanese 932. Change it only if Original is still garbage. |
-| Export / Import | Save the visible rows as a TSV file, translate the English column anywhere (Excel, ChatGPT, Claude...), import it back. Rows match by FormID + field. |
-| Glossary | `glossary.txt`: your own words, used before any engine (`가발 = Wig`). Engine results are kept in `translation_cache.txt` (editable), so a name is never translated twice. |
+| Top bar, left | Open, Save, Save As · Auto EN selected / all · Export / Import TSV · Glossary |
+| Top bar, right | **Engine** used by Auto EN, and **Settings** |
+| Second bar | Search, filters (Non-English only, Changed only, Include DESC), Original → English, Revert |
+| Status bar, right | The engine Auto EN will use: green ● = ready, amber ○ = not set up yet (click it to open its settings) |
+
+Export / Import save the visible rows as a TSV file, translate the English column anywhere (Excel, ChatGPT, Claude...) and read it back. Rows match by FormID + field.
+`glossary.txt` holds your own words (`가발 = Wig`), used before any engine; Notepad opens it and the glossary is reloaded when you come back to the window. Engine results are kept in `translation_cache.txt`, so a name is never translated twice.
+
+### Settings
+One page per topic. Everything is saved in `ESPLanguage_EN.ini` next to the exe.
+
+| Page | What is on it |
+|---|---|
+| **General** | Engine for Auto EN · Translate from (Auto picks Korean / Japanese / Chinese by script) · Title Case · Text in file (decoding; *Auto* = UTF-8, then 949 / 936 / Big5 / 932) · Include DESC · buttons that open glossary.txt, the cache and the backups folder |
+| **Claude** | API key, model |
+| **Local AI** | Server URL (presets for Ollama and LM Studio), model, Find models |
+| **NLLB-200** | Server URL, server folder and a **Start server** button |
+| **DeepL** | API key (its own; not shared with Google Cloud) |
+| **Google Cloud** | API key |
+| **Google (free)** | nothing to set |
+
+Every engine page has **Test** (translates `벚꽃 밤의 환상 가발` with the values on the page, before you save) and **Use this engine**.
+Settings from 1.1.0 are moved over automatically.
 
 ## Translation engines
 
 | Engine | Cost | Notes |
 |---|---|---|
-| **Local AI** | free, offline | A model on your own PC through Ollama, LM Studio or the NLLB server below. Best choice if you have a GPU. |
-| **Claude (API key)** | paid per use, small for names | Anthropic's Claude: the best quality for game names. Key from [console.anthropic.com](https://console.anthropic.com) -> API keys, pasted in **Settings**. Model: `claude-opus-5-5` (default, best) or `claude-haiku-5-5` (much cheaper). |
-| **DeepL (API key)** | free up to 500,000 characters / month | Sign up for *DeepL API Free* at deepl.com; the key ends with `:fx`. |
-| **Google Cloud (API key)** | paid after the free tier | Cloud Translation API key. |
+| **Claude** | paid per use, small for names | Anthropic's Claude: the best quality for game names. Key from [console.anthropic.com](https://console.anthropic.com) -> API keys, pasted in **Settings → Claude**. Model: `claude-opus-5-5` (default, best) or `claude-haiku-5-5` (much cheaper). |
+| **Local AI** | free, offline | Qwen / Llama on your own PC through Ollama or LM Studio. Best free choice if you have a GPU. |
+| **NLLB-200** | free, offline | Meta's translation model through the NLLB server below. Fast, but literal. |
+| **DeepL** | free up to 500,000 characters / month | Sign up for *DeepL API Free* at deepl.com; the key ends with `:fx`. |
+| **Google Cloud** | paid after the free tier | Cloud Translation API key. |
 | **Google (free)** | free | No key, but Google often refuses automated requests (error 429). |
 
 ### Local AI with Ollama (Qwen / Llama)
@@ -72,7 +89,7 @@ Close xEdit and the game before saving a plugin they have open.
 2. In a terminal: `ollama pull qwen2.5:7b`
    - About 4.7 GB, needs roughly 8 GB of VRAM.
    - `qwen2.5:14b` is better with 16 GB+ of VRAM; `qwen2.5:3b` suits weak PCs.
-3. In ESPLanguage_EN: Engine = **Local AI (Ollama / LM Studio)** -> **Settings** -> URL `http://localhost:11434/v1` -> **Find models** -> pick the model -> **Save**.
+3. In ESPLanguage_EN: **Settings → Local AI** -> preset **Ollama** -> **Find models** -> pick the model -> **Test** -> **Use this engine** -> **Save**.
 
 **LM Studio**: load a model, then Developer -> *Start server*, URL `http://localhost:1234/v1`. llama.cpp `llama-server`, Jan and other servers with `/v1/chat/completions` work too.
 
@@ -86,7 +103,7 @@ NLLB-200 is a translation-only model (licence CC-BY-NC 4.0, non-commercial). [to
 3. Run `start_nllb.bat` in that folder.
    - The first start downloads the model. Wait for `Ready`.
    - Smaller model: `start_nllb.bat --model facebook/nllb-200-distilled-1.3B`.
-4. In ESPLanguage_EN: Engine = **Local AI** -> **Settings** -> URL `http://localhost:8000/v1` -> Save.
+4. In ESPLanguage_EN: **Settings → NLLB-200** -> Server folder = the install folder (e.g. `E:\nllb`). From then on **Start server** there starts it. Wait for `Ready` in its window -> **Test** -> **Use this engine** -> **Save**.
 
 | Model | Download | VRAM (fp16) |
 |---|---|---|
@@ -110,6 +127,7 @@ ESPLanguage_EN.exe <plugin>                                   open in the window
 ESPLanguage_EN.exe --auto-en <plugin> <out> [ko|zh-CN|ja]     translate every non-English FULL with the engine in the ini,
                                                               write <out> and <out>.log.txt
 ESPLanguage_EN.exe --test <plugin> <report.txt>               read / rebuild check, lists non-English texts
+ESPLanguage_EN.exe --screenshots <folder>                     the Settings pages as PNG files (no window)
 ```
 
 ## Build from source
@@ -149,19 +167,22 @@ Source code is in `src/` (C# WinForms, no external packages).
 ต้องปิด xEdit และเกมก่อนกด Save ไฟล์เดียวกัน
 
 ### เลือกตัวแปล (Engine)
+กด **Settings** แล้วเลือกหัวข้อทางซ้าย: **General** คือการตั้งค่าทั่วไป ส่วนหัวข้ออื่นเป็นของตัวแปลแต่ละตัว แต่ละหน้ามีปุ่ม **Test** (ลองแปลทันทีด้วยค่าที่กรอกอยู่ ไม่ต้อง Save ก่อน) และ **Use this engine** (ใช้ตัวนี้กับ Auto EN)
+แถบล่างขวาของหน้าต่างหลักบอกว่าตอนนี้ใช้ตัวแปลไหน จุดเขียว ● คือพร้อมใช้ จุดส้ม ○ คือยังไม่ได้ตั้งค่า (คลิกเพื่อไปตั้งค่าได้เลย)
+
+- **Claude:** คุณภาพดีที่สุดสำหรับชื่อไอเทมในเกม แต่เสียค่าใช้จ่ายตามการใช้งาน (สำหรับชื่อสั้นๆ ถือว่าน้อย)
+  1. สร้าง API key ที่ console.anthropic.com → API keys
+  2. ใส่ key ใน **Settings → Claude**
+  3. เลือกโมเดล: `claude-opus-5-5` (ค่าเริ่มต้น ดีที่สุด) หรือ `claude-haiku-5-5` (ถูกกว่ามาก)
 - **Local AI (แนะนำ ถ้ามีการ์ดจอ):** ฟรีและใช้ได้แบบออฟไลน์
   1. ติดตั้ง Ollama จาก ollama.com
   2. เปิด terminal แล้วสั่ง `ollama pull qwen2.5:7b`
-  3. ในโปรแกรมเลือก Engine เป็น Local AI → กด **Settings** → **Find models** → เลือกโมเดล → **Save**
-- **NLLB-200 ของ Meta:**
-  1. ติดตั้ง Python 3.10–3.12
-  2. รัน `tools\install_nllb.bat` แล้วตามด้วย `start_nllb.bat`
-  3. ในโปรแกรมตั้ง URL ใน Settings เป็น `http://localhost:8000/v1`
-- **Claude:** คุณภาพดีที่สุดสำหรับชื่อไอเทมในเกม แต่เสียค่าใช้จ่ายตามการใช้งาน (สำหรับชื่อสั้นๆ ถือว่าน้อย)
-  1. สร้าง API key ที่ console.anthropic.com → API keys
-  2. นำ key มาใส่ใน **Settings**
-  3. เลือกโมเดล: `claude-opus-5-5` (ค่าเริ่มต้น ดีที่สุด) หรือ `claude-haiku-5-5` (ถูกกว่ามาก)
-- **DeepL:** ฟรีเดือนละ 500,000 ตัวอักษร สมัคร DeepL API Free ที่ deepl.com แล้วนำ key มาใส่ใน Settings
+  3. **Settings → Local AI** → กดปุ่ม **Ollama** → **Find models** → เลือกโมเดล → **Test**
+- **NLLB-200 ของ Meta:** ฟรี ออฟไลน์ และเร็ว แต่แปลตรงตัว
+  1. ติดตั้ง Python 3.10–3.12 แล้วรัน `tools\install_nllb.bat`
+  2. **Settings → NLLB-200** → ตั้ง Server folder เป็นโฟลเดอร์ที่ติดตั้ง (เช่น `E:\nllb`) → กด **Start server**
+  3. รอหน้าต่างเซิร์ฟเวอร์ขึ้นว่า `Ready` แล้วกด **Test**
+- **DeepL:** ฟรีเดือนละ 500,000 ตัวอักษร สมัคร DeepL API Free ที่ deepl.com แล้วใส่ key ใน **Settings → DeepL** (key ของ DeepL กับ Google Cloud แยกกันแล้ว)
 - **Google (free):** ไม่ต้องใช้ key แต่มักโดน Google บล็อก (ขึ้น error 429)
 - **Export / Import:** ส่งออกเป็นไฟล์ TSV ไปแปลที่ไหนก็ได้ (Excel, ChatGPT, Claude) แล้วนำเข้ากลับ
 

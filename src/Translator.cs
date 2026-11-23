@@ -16,17 +16,8 @@ public sealed class Translator
     public const string GlossaryFile = "glossary.txt";
     public const string CacheFile = "translation_cache.txt";
 
-    public static readonly string[] Engines = { "Google (free)", "DeepL (API key)", "Google Cloud (API key)", "Local AI (Ollama / LM Studio)", "Claude (API key)" };
-    public string ClaudeKey = "";
-    public string ClaudeModel = ClaudeEngine.DefaultModel;
-    public static bool IsClaude(string engine) => engine == Engines[4];
-    public const string DefaultLocalUrl = "http://localhost:11434/v1";
-    public const string DefaultLocalModel = "qwen2.5:7b";
-    public string Engine = Engines[0];
-    public string ApiKey = "";
-    public string LocalUrl = DefaultLocalUrl;            // any OpenAI-compatible server: Ollama, LM Studio, llama.cpp, Jan...
-    public string LocalModel = DefaultLocalModel;
-    public static bool IsLocal(string engine) => engine == Engines[3];
+    public AppSettings S = new();                        // engine, keys, servers (see Settings.cs)
+    EngineKind Engine => S.Engine;
 
     // a local model can need minutes to load into memory on the first request
     static readonly HttpClient LocalHttp = new() { Timeout = TimeSpan.FromMinutes(10) };
@@ -46,6 +37,8 @@ public sealed class Translator
         h.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0");
         return h;
     }
+
+    Translator() { }                                     // TestAsync: no glossary, no cache
 
     public Translator(string folder)
     {
@@ -69,9 +62,17 @@ public sealed class Translator
         }
     }
 
+    public string GlossaryPath => System.IO.Path.Combine(dir, GlossaryFile);
+
+    public void ReloadGlossary()
+    {
+        Glossary.Clear();
+        LoadPairs(GlossaryPath, '=', Glossary);
+    }
+
     public void SaveCache()
     {
-        if (!cacheDirty) return;
+        if (!cacheDirty || dir == null) return;
         var sb = new StringBuilder("# source<TAB>english - results of Google Translate, edit or delete lines freely\r\n");
         foreach (var kv in Cache.OrderBy(k => k.Key, StringComparer.Ordinal))
             sb.Append(kv.Key).Append('\t').Append(kv.Value).Append("\r\n");
@@ -161,44 +162,66 @@ public sealed class Translator
 
     async Task TranslateBatch(List<string> batch, string lang)
     {
-        if (IsLocal(Engine) || IsClaude(Engine))
+        var res = await RawBatch(batch, lang);
+        for (int i = 0; i < batch.Count; i++)
+            if (!string.IsNullOrWhiteSpace(res[i])) Put(batch[i], res[i]);
+    }
+
+    // one batch through the selected engine; result[i] belongs to batch[i] (null = no answer)
+    async Task<string[]> RawBatch(List<string> batch, string lang)
+    {
+        var outp = new string[batch.Count];
+        switch (Engine)
         {
-            Func<List<string>, string, Task<List<string>>> ask = IsClaude(Engine) ? ClaudeAi : LocalAi;
-            var res = await ask(batch, lang);
-            if (res.Count == batch.Count)
+            case EngineKind.Claude:
+            case EngineKind.LocalAI:
+            case EngineKind.Nllb:
             {
-                for (int i = 0; i < batch.Count; i++) Put(batch[i], res[i]);
-                return;
+                Func<List<string>, string, Task<List<string>>> ask = Engine switch
+                {
+                    EngineKind.Claude => ClaudeAi,
+                    EngineKind.Nllb => (b, l) => LocalAi(b, l, S.NllbUrl, "nllb", "NLLB-200"),
+                    _ => (b, l) => LocalAi(b, l, S.LocalUrl, S.LocalModel, "Local AI"),
+                };
+                var res = await ask(batch, lang);
+                if (res.Count == batch.Count) return res.ToArray();
+                for (int i = 0; i < batch.Count; i++)       // the model returned a wrong number of lines: one by one
+                {
+                    var one = await ask(new List<string> { batch[i] }, lang);
+                    if (one.Count > 0) outp[i] = one[0];
+                }
+                return outp;
             }
-            foreach (var r in batch)                    // the model returned a wrong number of lines: one by one
+            case EngineKind.DeepL:
+            case EngineKind.GoogleCloud:
             {
-                var one = await ask(new List<string> { r }, lang);
-                if (one.Count > 0) Put(r, one[0]);
+                var res = Engine == EngineKind.DeepL ? await DeepL(batch, lang) : await GoogleCloud(batch, lang);
+                if (res.Count != batch.Count) throw new InvalidDataException($"{AppSettings.NameOf(Engine)}: {res.Count} answers for {batch.Count} texts");
+                return res.ToArray();
             }
-            return;
+            default:
+            {
+                var lines = (await Google(string.Join("\n", batch), lang)).Replace("\r", "").Split('\n');
+                if (lines.Length >= batch.Count && lines.Skip(batch.Count).All(string.IsNullOrWhiteSpace))
+                    return lines.Take(batch.Count).ToArray();
+                for (int i = 0; i < batch.Count; i++)       // line count changed: one by one
+                {
+                    outp[i] = (await Google(batch[i], lang)).Replace("\r", "").Replace("\n", " ");
+                    await Task.Delay(150);
+                }
+                return outp;
+            }
         }
-        if (Engine != Engines[0])
-        {
-            if (string.IsNullOrWhiteSpace(ApiKey))
-                throw new InvalidOperationException(Engine + " needs an API key (button \"API key...\").");
-            var res = Engine == Engines[1] ? await DeepL(batch, lang) : await GoogleCloud(batch, lang);
-            if (res.Count != batch.Count) throw new InvalidDataException($"{Engine}: {res.Count} answers for {batch.Count} texts");
-            for (int i = 0; i < batch.Count; i++) Put(batch[i], res[i]);
-            return;
-        }
-        string joined = string.Join("\n", batch);
-        var lines = (await Google(joined, lang)).Replace("\r", "").Split('\n');
-        if (lines.Length >= batch.Count && lines.Skip(batch.Count).All(string.IsNullOrWhiteSpace))
-        {
-            for (int i = 0; i < batch.Count; i++) Put(batch[i], lines[i]);
-            return;
-        }
-        // line count changed: one by one
-        foreach (var r in batch)
-        {
-            Put(r, (await Google(r, lang)).Replace("\r", "").Replace("\n", " "));
-            await Task.Delay(150);
-        }
+    }
+
+    // "Test" button in Settings: one sample through one engine with the settings being edited (no glossary, no cache)
+    public static async Task<string> TestAsync(AppSettings settings, string sample = "벚꽃 밤의 환상 가발")
+    {
+        var t = new Translator { S = settings };
+        var res = await t.RawBatch(new List<string> { sample }, "ko");
+        string en = res.Length > 0 ? res[0] : null;
+        if (string.IsNullOrWhiteSpace(en)) throw new InvalidDataException("the engine answered, but with no translation.");
+        return Clean(en, settings.TitleCase);
     }
 
     void Put(string src, string en)
@@ -235,24 +258,27 @@ public sealed class Translator
 
     async Task<List<string>> DeepL(List<string> batch, string lang)
     {
-        string host = ApiKey.Trim().EndsWith(":fx") ? "api-free.deepl.com" : "api.deepl.com";
+        if (string.IsNullOrWhiteSpace(S.DeepLKey)) throw new InvalidOperationException("DeepL needs an API key: Settings → DeepL.");
+        string key = S.DeepLKey.Trim();
+        string host = key.EndsWith(":fx") ? "api-free.deepl.com" : "api.deepl.com";
         var form = batch.Select(t => new KeyValuePair<string, string>("text", t)).ToList();
         form.Add(new("target_lang", "EN-US"));
         string src = lang switch { "ko" => "KO", "ja" => "JA", "zh-CN" => "ZH", _ => null };
         if (src != null) form.Add(new("source_lang", src));
         using var req = new HttpRequestMessage(HttpMethod.Post, $"https://{host}/v2/translate") { Content = new FormUrlEncodedContent(form) };
-        req.Headers.TryAddWithoutValidation("Authorization", "DeepL-Auth-Key " + ApiKey.Trim());
+        req.Headers.TryAddWithoutValidation("Authorization", "DeepL-Auth-Key " + key);
         using var doc = await SendJson(req, "DeepL");
         return doc.RootElement.GetProperty("translations").EnumerateArray().Select(t => t.GetProperty("text").GetString()).ToList();
     }
 
     async Task<List<string>> GoogleCloud(List<string> batch, string lang)
     {
+        if (string.IsNullOrWhiteSpace(S.GoogleKey)) throw new InvalidOperationException("Google Cloud needs an API key: Settings → Google Cloud.");
         var form = batch.Select(t => new KeyValuePair<string, string>("q", t)).ToList();
         form.Add(new("target", "en"));
         form.Add(new("format", "text"));
         if (lang != "auto") form.Add(new("source", lang));
-        string url = "https://translation.googleapis.com/language/translate/v2?key=" + Uri.EscapeDataString(ApiKey.Trim());
+        string url = "https://translation.googleapis.com/language/translate/v2?key=" + Uri.EscapeDataString(S.GoogleKey.Trim());
         using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(form) };
         using var doc = await SendJson(req, "Google Cloud");
         return doc.RootElement.GetProperty("data").GetProperty("translations").EnumerateArray()
@@ -265,10 +291,10 @@ public sealed class Translator
         "ko" => "Korean", "ja" => "Japanese", "zh-CN" => "Chinese", _ => "Korean, Chinese or Japanese",
     };
 
-    string LocalBase()
+    static string LocalBase(string url)
     {
-        string u = (LocalUrl ?? "").Trim().TrimEnd('/');
-        if (u.Length == 0) u = DefaultLocalUrl;
+        string u = (url ?? "").Trim().TrimEnd('/');
+        if (u.Length == 0) u = AppSettings.DefaultLocalUrl;
         if (!u.EndsWith("/v1")) u += "/v1";            // "http://localhost:11434" works too
         return u;
     }
@@ -281,13 +307,13 @@ public sealed class Translator
 
     async Task<List<string>> ClaudeAi(List<string> batch, string lang)
     {
-        string text = await ClaudeEngine.Ask(ClaudeKey, ClaudeModel, AiSystem(lang), JsonSerializer.Serialize(batch, JsonOpts));
+        string text = await ClaudeEngine.Ask(S.ClaudeKey, S.ClaudeModel, AiSystem(lang), JsonSerializer.Serialize(batch, JsonOpts));
         return ParseList(text, batch.Count);
     }
 
-    async Task<List<string>> LocalAi(List<string> batch, string lang)
+    async Task<List<string>> LocalAi(List<string> batch, string lang, string url, string modelName, string what)
     {
-        string model = string.IsNullOrWhiteSpace(LocalModel) ? DefaultLocalModel : LocalModel.Trim();
+        string model = string.IsNullOrWhiteSpace(modelName) ? AppSettings.DefaultLocalModel : modelName.Trim();
         string system = AiSystem(lang);
         var body = new Dictionary<string, object>
         {
@@ -300,16 +326,18 @@ public sealed class Translator
                 new Dictionary<string, string> { ["role"] = "user", ["content"] = JsonSerializer.Serialize(batch, JsonOpts) },
             },
         };
-        using var req = new HttpRequestMessage(HttpMethod.Post, LocalBase() + "/chat/completions")
+        using var req = new HttpRequestMessage(HttpMethod.Post, LocalBase(url) + "/chat/completions")
         {
             Content = new StringContent(JsonSerializer.Serialize(body, JsonOpts), Encoding.UTF8, "application/json"),
         };
         JsonDocument doc;
-        try { doc = await SendJson(req, "Local AI (" + model + ")", LocalHttp); }
+        try { doc = await SendJson(req, what + " (" + model + ")", LocalHttp); }
         catch (HttpRequestException ex) when (ex.StatusCode == null)
         {
-            throw new HttpRequestException($"cannot reach the local AI server at {LocalBase()}.\n" +
-                "Start Ollama (or LM Studio's server) first. Ollama: install from ollama.com, then run  ollama pull " + DefaultLocalModel +
+            throw new HttpRequestException($"cannot reach the {what} server at {LocalBase(url)}.\n" +
+                (Engine == EngineKind.Nllb
+                    ? "Start it first: start_nllb.bat (Settings → NLLB-200 → Start server)."
+                    : "Start Ollama (or LM Studio's server) first. Ollama: install from ollama.com, then run  ollama pull " + AppSettings.DefaultLocalModel) +
                 "\nDetails: " + ex.Message);
         }
         using (doc)
@@ -342,9 +370,9 @@ public sealed class Translator
     }
 
     // model names the server has (Ollama: the pulled models)
-    public async Task<List<string>> LocalModels()
+    public static async Task<List<string>> LocalModels(string url)
     {
-        using var req = new HttpRequestMessage(HttpMethod.Get, LocalBase() + "/models");
+        using var req = new HttpRequestMessage(HttpMethod.Get, LocalBase(url) + "/models");
         using var doc = await SendJson(req, "Local AI", LocalHttp);
         return doc.RootElement.GetProperty("data").EnumerateArray().Select(m => m.GetProperty("id").GetString()).OrderBy(s => s).ToList();
     }

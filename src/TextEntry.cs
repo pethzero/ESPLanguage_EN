@@ -13,14 +13,23 @@ public sealed class TextEntry
     public string Field { get; set; }
     public string Original { get; set; }                // decoded text that is in the file now
     public string Enc { get; set; }
-    public string English { get; set; }                 // what will be written on save
+
+    string english;
+    bool valid = true;
+
+    // what will be written on save; validity is computed once here, not on every repaint of the grid
+    public string English
+    {
+        get => english;
+        set { english = value; valid = string.IsNullOrEmpty(value) || TextCodec.CanWrite(value); }
+    }
 
     public bool IsForeign => TextCodec.IsForeign(Enc);
-    public bool Changed => !string.IsNullOrEmpty(English) && (English != Original || IsForeign);
-    public bool Valid => string.IsNullOrEmpty(English) || TextCodec.CanWrite(English);
+    public bool Changed => !string.IsNullOrEmpty(english) && (english != Original || IsForeign);
+    public bool Valid => valid;
 
     public string Status =>
-        !Valid ? "Invalid chars" :
+        !valid ? "Invalid chars" :
         Changed ? "Changed" :
         IsForeign ? "Not English (" + Enc + ")" : "";
 }

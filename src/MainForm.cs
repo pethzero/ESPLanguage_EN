@@ -6,7 +6,6 @@ namespace ESPLanguageEN;
 public sealed class MainForm : Form
 {
     static readonly string BaseDir = AppContext.BaseDirectory;
-    static readonly string IniPath = System.IO.Path.Combine(BaseDir, "ESPLanguage_EN.ini");
 
     Plugin plugin;
     readonly List<TextEntry> all = new();
@@ -14,7 +13,6 @@ public sealed class MainForm : Form
     readonly BindingSource bs = new();
     Translator tr;
     bool busy;
-    string lastDir = "";
 
     readonly DataGridView grid = new()
     {
@@ -28,20 +26,20 @@ public sealed class MainForm : Form
     };
     readonly ToolStrip bar1 = new() { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(10, 6, 10, 6) };
     readonly ToolStrip bar2 = new() { GripStyle = ToolStripGripStyle.Hidden, Padding = new Padding(10, 4, 10, 6) };
-    readonly ToolStripComboBox cboEnc = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 120 };
-    readonly ToolStripComboBox cboLang = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 95 };
-    readonly ToolStripComboBox cboEngine = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
-    string apiKey = "";
-    string localUrl = Translator.DefaultLocalUrl, localModel = Translator.DefaultLocalModel;
-    string claudeKey = "", claudeModel = ClaudeEngine.DefaultModel;
+    readonly ToolStripComboBox cboEngine = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210 };
+    AppSettings settings = AppSettings.Load();
     readonly ToolStripTextBox txtSearch = new() { Width = 240, BorderStyle = BorderStyle.FixedSingle };
     readonly ToolStripButton chkForeign = new("Non-English only") { CheckOnClick = true, Checked = true };
     readonly ToolStripButton chkChanged = new("Changed only") { CheckOnClick = true };
     readonly ToolStripButton chkDesc = new("Include DESC") { CheckOnClick = true, ToolTipText = "Also list descriptions (DESC), e.g. book text and item descriptions" };
-    readonly ToolStripButton chkTitle = new("Title Case") { CheckOnClick = true, Checked = true, ToolTipText = "Auto EN writes \"Cherry Blossom Wig\" instead of \"cherry blossom wig\"" };
     readonly List<ToolStripItem> busyItems = new();
     readonly ToolStripStatusLabel status = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
-    readonly ToolStripStatusLabel hint = new("Ctrl+O open   ·   Ctrl+S save   ·   F2 edit   ·   F5 Auto EN   ·   Ctrl+F search") { ForeColor = Theme.TextFaint };
+    readonly ToolStripStatusLabel engineLabel = new() { IsLink = false, Margin = new Padding(12, 3, 12, 2) };
+    readonly ToolStripStatusLabel hint = new("F2 edit  ·  F5 Auto EN  ·  Ctrl+S save  ·  Ctrl+F search") { ForeColor = Theme.TextFaint };
+    readonly System.Windows.Forms.Timer searchDelay = new() { Interval = 250 };
+    readonly Dictionary<string, int> pillWidth = new();
+    DateTime glossaryStamp;
+    bool closeAfterSave;
 
     readonly Label lblFile = new() { AutoSize = true, ForeColor = Theme.TextDim, Font = Theme.Ui, Text = "No plugin loaded" };
     readonly StatCard cardAll = new() { Caption = "Texts", Dot = Theme.TextDim };
@@ -53,8 +51,6 @@ public sealed class MainForm : Form
     Panel frame;
     DataGridViewColumn colStatus, colType, colEnglish;
 
-    static readonly (string Name, string Code)[] Langs =
-        { ("Auto", "auto"), ("Korean", "ko"), ("Chinese", "zh-CN"), ("Japanese", "ja") };
 
     public MainForm(string startPath)
     {
@@ -69,22 +65,17 @@ public sealed class MainForm : Form
         AllowDrop = true;
         KeyPreview = true;
 
-        cboEnc.Items.AddRange(TextCodec.Modes);
-        foreach (var l in Langs) cboLang.Items.Add(l.Name);
-        cboEngine.Items.AddRange(Translator.Engines);
-        cboEngine.SelectedIndex = 0;
-        cboEngine.ToolTipText = "Google (free): no key, but Google may refuse automated requests (429).\n" +
-                                "DeepL (API key): DeepL API Free = 500,000 characters / month at no cost.\n" +
-                                "Google Cloud (API key): Cloud Translation API.\n" +
-                                "Local AI: Qwen / Llama on your own PC via Ollama or LM Studio (offline, free). Set it up in Settings.\n" +
-                                "Claude (API key): Anthropic's Claude, best quality for game names. Key and model in Settings.";
-        cboEnc.SelectedIndex = 0;
-        cboLang.SelectedIndex = 0;
-        foreach (var c in new[] { cboEnc, cboLang, cboEngine }) Theme.DarkCombo(c);
+        foreach (var e in AppSettings.EngineList) cboEngine.Items.Add(e.Name);
+        cboEngine.SelectedItem = AppSettings.NameOf(settings.Engine);
+        cboEngine.ToolTipText = "Engine used by Auto EN. Set each one up in Settings (keys, servers, models) and test it there.";
+        Theme.DarkCombo(cboEngine);
         Theme.DarkSearch(txtSearch, 260);
         txtSearch.TextBox.PlaceholderText = "Search name, EditorID, FormID...";
+        chkDesc.Checked = settings.IncludeDesc;
 
         // ---------------------------------------------------------- toolbars
+        // bar1 = file and translate actions (left), engine + Settings (right)
+        // bar2 = what the list shows (search, filters) and row actions
         var renderer = new DarkRenderer();
         foreach (var b in new[] { bar1, bar2 }) { b.Renderer = renderer; b.BackColor = Theme.Bg; b.ForeColor = Theme.Text; b.ImageScalingSize = new Size(16, 16); }
 
@@ -101,31 +92,29 @@ public sealed class MainForm : Form
             busyItems.Add(b);
             return b;
         }
-        void Toggle(ToolStrip bar, ToolStripButton b) { b.Padding = new Padding(8, 3, 8, 3); b.Margin = new Padding(2, 1, 2, 1); bar.Items.Add(b); }
+        void Toggle(ToolStrip bar, ToolStripButton b) { b.Padding = new Padding(8, 3, 8, 3); b.Margin = new Padding(2, 1, 2, 1); bar.Items.Add(b); busyItems.Add(b); }
         void Sep(ToolStrip bar) => bar.Items.Add(new ToolStripSeparator { Margin = new Padding(6, 0, 6, 0) });
-        ToolStripLabel Lbl(string t) => new(t) { Margin = new Padding(8, 1, 2, 2) };
 
         Btn(bar1, "Open", '', "Open a plugin (Ctrl+O). You can also drag a .esp onto the window.", OpenDialog);
-        Btn(bar1, "Save", '', "Write the changes into the plugin (Ctrl+S). A backup goes to the backups folder first.", () => Save(plugin?.Path));
+        Btn(bar1, "Save", '', "Write the changes into the plugin (Ctrl+S). A backup goes to the backups folder first.", () => _ = SaveAsync(plugin?.Path));
         Btn(bar1, "Save As", '', "Write to another file", SaveAs);
         Sep(bar1);
         Btn(bar1, "Auto EN selected", '', "Translate the selected rows to English (F5)", () => _ = TranslateAsync(Selected()));
         Btn(bar1, "Auto EN all", '', "Translate every row that is not English yet and has no English text", () =>
             _ = TranslateAsync(all.Where(e => e.IsForeign && string.IsNullOrEmpty(e.English)).ToList()), accent: true);
-        Toggle(bar1, chkTitle);
         Sep(bar1);
         Btn(bar1, "Export", '', "Export TSV: save the list as a tab-separated file (Excel / any translator / AI). Edit the English column and import it back.", ExportTsv);
         Btn(bar1, "Import", '', "Import TSV: read the English column back from an exported file", ImportTsv);
-        Btn(bar1, "Glossary", '', "Open glossary.txt (your own words, used before the online translator)", OpenGlossary);
+        Btn(bar1, "Glossary", '', "Open glossary.txt (your own words, used before any engine). It is reloaded when you come back to this window.", OpenGlossary);
 
-        // translator settings on the right of the top bar
-        var keyBtn = Btn(bar1, "Settings", '', "Engine settings: API key for DeepL / Google Cloud, server and model for Local AI", EngineSettings);
-        bar1.Items.Remove(keyBtn);
-        foreach (var it in new ToolStripItem[] { keyBtn, cboEngine, Lbl("Engine"), cboLang, Lbl("From") })
+        var settingsBtn = Btn(bar1, "Settings", '', "Engines (keys, servers, models, Test), translation and reading options", () => OpenSettings());
+        bar1.Items.Remove(settingsBtn);
+        foreach (var it in new ToolStripItem[] { settingsBtn, cboEngine, new ToolStripLabel("Engine") { Margin = new Padding(8, 1, 2, 2) } })
         {
             it.Alignment = ToolStripItemAlignment.Right;
             bar1.Items.Add(it);
         }
+        busyItems.Add(cboEngine);
 
         var searchIcon = new ToolStripLabel { Image = Theme.Glyph('', Theme.TextDim), Margin = new Padding(0, 1, 0, 2) };
         bar2.Items.Add(searchIcon);
@@ -137,12 +126,6 @@ public sealed class MainForm : Form
         Sep(bar2);
         Btn(bar2, "Original → English", '', "Copy the original text into English for the selected rows (then edit by hand)", () => ForSelected(e => e.English = e.Original));
         Btn(bar2, "Revert", '', "Undo the English text of the selected rows", () => ForSelected(e => e.English = e.IsForeign ? "" : e.Original));
-        cboEnc.ToolTipText = "How the text in the file is decoded. Auto works for almost every plugin.";
-        foreach (var it in new ToolStripItem[] { cboEnc, Lbl("Text in file") })
-        {
-            it.Alignment = ToolStripItemAlignment.Right;
-            bar2.Items.Add(it);
-        }
 
         // ---------------------------------------------------------- header
         var header = new Panel { Dock = DockStyle.Top, Height = 80, BackColor = Theme.Bg };
@@ -243,7 +226,10 @@ public sealed class MainForm : Form
 
         var strip = new StatusStrip { Renderer = renderer, BackColor = Theme.Surface, SizingGrip = false, Padding = new Padding(12, 3, 12, 3) };
         status.ForeColor = Theme.TextDim;
+        engineLabel.Click += (_, _) => OpenSettings(settings.Engine);
+        engineLabel.ToolTipText = "Engine used by Auto EN. Click to set it up.";
         strip.Items.Add(status);
+        strip.Items.Add(engineLabel);
         strip.Items.Add(hint);
 
         Controls.Add(content);
@@ -253,11 +239,29 @@ public sealed class MainForm : Form
         Controls.Add(header);
         Controls.Add(strip);
 
-        txtSearch.TextChanged += (_, _) => ApplyFilter();
+        // smooth scrolling of long lists (DataGridView has no public switch for this)
+        typeof(Control).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.SetValue(grid, true);
+
+        // search: filter once typing pauses, not on every key
+        searchDelay.Tick += (_, _) => { searchDelay.Stop(); ApplyFilter(); };
+        txtSearch.TextChanged += (_, _) => { searchDelay.Stop(); searchDelay.Start(); };
         chkForeign.CheckedChanged += (_, _) => ApplyFilter();
         chkChanged.CheckedChanged += (_, _) => ApplyFilter();
-        chkDesc.CheckedChanged += (_, _) => { if (plugin != null) BuildEntries(); };
-        cboEnc.SelectedIndexChanged += (_, _) => { if (plugin != null) BuildEntries(); };
+        chkDesc.CheckedChanged += (_, _) =>
+        {
+            if (settings.IncludeDesc == chkDesc.Checked) return;
+            settings.IncludeDesc = chkDesc.Checked;
+            settings.Save();
+            if (plugin != null) _ = RebuildAsync();
+        };
+        cboEngine.SelectedIndexChanged += (_, _) =>
+        {
+            var k = AppSettings.KindByName(cboEngine.SelectedItem as string, settings.Engine);
+            if (k == settings.Engine) return;
+            settings.Engine = k;
+            settings.Save();
+            UpdateEngineLabel();
+        };
 
         // drag & drop works on the window, the grid and the empty drop zone
         foreach (Control c in new Control[] { this, grid, drop })
@@ -272,18 +276,19 @@ public sealed class MainForm : Form
             {
                 drop.Hot = false;
                 drop.Invalidate();
-                if (e.Data.GetData(DataFormats.FileDrop) is string[] f && f.Length > 0) BeginInvoke(() => LoadFile(f[0]));
+                if (e.Data.GetData(DataFormats.FileDrop) is string[] f && f.Length > 0) BeginInvoke(() => _ = LoadFileAsync(f[0]));
             };
         }
         KeyDown += MainForm_KeyDown;
-        FormClosing += (_, e) => { if (!ConfirmDiscard()) e.Cancel = true; else SaveIni(); };
+        FormClosing += MainForm_FormClosing;
+        Activated += (_, _) => ReloadGlossaryIfChanged();
 
-        LoadIni();
-        try { tr = new Translator(BaseDir); }
+        try { tr = new Translator(BaseDir) { S = settings }; glossaryStamp = GlossaryTime(); }
         catch (Exception ex) { MessageBox.Show(this, "Could not read glossary / cache: " + ex.Message, Text); }
         status.Text = "Open a plugin (Open, or drag a .esp onto the window).";
         UpdateCards();
-        if (!string.IsNullOrEmpty(startPath)) Shown += (_, _) => LoadFile(startPath);
+        UpdateEngineLabel();
+        if (!string.IsNullOrEmpty(startPath)) Shown += (_, _) => _ = LoadFileAsync(startPath);
     }
 
     protected override void OnHandleCreated(EventArgs e)
@@ -306,46 +311,81 @@ public sealed class MainForm : Form
     // ---------------------------------------------------------------- load
     void OpenDialog()
     {
+        if (busy) return;
         using var d = new OpenFileDialog
         {
             Filter = "Skyrim plugins (*.esp;*.esm;*.esl)|*.esp;*.esm;*.esl|All files (*.*)|*.*",
-            InitialDirectory = Directory.Exists(lastDir) ? lastDir : "",
+            InitialDirectory = Directory.Exists(settings.LastDir) ? settings.LastDir : "",
         };
-        if (d.ShowDialog(this) == DialogResult.OK) LoadFile(d.FileName);
+        if (d.ShowDialog(this) == DialogResult.OK) _ = LoadFileAsync(d.FileName);
     }
 
-    void LoadFile(string path)
+    // reading and parsing a big plugin takes seconds: it runs in the background, the window stays usable
+    async Task LoadFileAsync(string path)
     {
-        if (busy || !ConfirmDiscard()) return;
+        if (busy || !await ConfirmDiscardAsync()) return;
+        SetBusy(true);
+        status.Text = "Opening " + System.IO.Path.GetFileName(path) + " ...";
         try
         {
-            var p = Plugin.Load(path);
+            string mode = settings.TextMode;
+            bool desc = settings.IncludeDesc;
+            var (p, entries) = await Task.Run(() =>
+            {
+                var pl = Plugin.Load(path);
+                return (pl, pl.Localized ? null : ReadEntries(pl, mode, desc, null));
+            });
             if (p.Localized)
             {
+                status.Text = "Not opened: localized plugin.";
                 MessageBox.Show(this, "This plugin is LOCALIZED: its names are in the Strings\\*.STRINGS files, not in the plugin.\n" +
                     "ESPLanguage_EN edits names that are stored inside the plugin.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             plugin = p;
-            lastDir = System.IO.Path.GetDirectoryName(path);
+            settings.LastDir = System.IO.Path.GetDirectoryName(path);
+            settings.Save();
             all.Clear();
+            all.AddRange(entries);
             drop.Visible = false;
             frame.Visible = true;
-            BuildEntries();
+            ApplyFilter();
             grid.Focus();
         }
         catch (Exception ex)
         {
+            status.Text = "Could not open the plugin.";
             MessageBox.Show(this, "Cannot read the plugin:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+        finally { SetBusy(false); }
     }
 
-    // reads every FULL (+ DESC) text; English typed so far is kept (reload after an option change)
-    void BuildEntries()
+    // after Include DESC / Text in file changed; English typed so far is kept
+    async Task RebuildAsync()
     {
-        var keep = all.Where(e => e.Changed).ToDictionary(e => e.Key, e => e.English);
-        all.Clear();
-        string mode = cboEnc.SelectedItem as string ?? "Auto";
+        if (plugin == null || busy) return;
+        grid.EndEdit();
+        SetBusy(true);
+        status.Text = "Reading the plugin again ...";
+        try
+        {
+            var keep = all.Where(e => e.Changed).ToDictionary(e => e.Key, e => e.English);
+            var p = plugin;
+            string mode = settings.TextMode;
+            bool desc = settings.IncludeDesc;
+            var entries = await Task.Run(() => ReadEntries(p, mode, desc, keep));
+            all.Clear();
+            all.AddRange(entries);
+            ApplyFilter();
+        }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally { SetBusy(false); }
+    }
+
+    // every FULL (+ DESC) text of the plugin; runs on a worker thread (touches no control)
+    static List<TextEntry> ReadEntries(Plugin plugin, string mode, bool desc, Dictionary<string, string> keep)
+    {
+        var list = new List<TextEntry>();
         foreach (var r in plugin.Records())
         {
             if (r.Type == "TES4") continue;
@@ -358,7 +398,7 @@ public sealed class MainForm : Form
             var count = new Dictionary<string, int>();
             foreach (var s in subs)
             {
-                if (s.Type != "FULL" && !(chkDesc.Checked && s.Type == "DESC")) continue;
+                if (s.Type != "FULL" && !(desc && s.Type == "DESC")) continue;
                 int n = count.GetValueOrDefault(s.Type) + 1;
                 count[s.Type] = n;
                 var raw = TextCodec.Trim0(s.Data);
@@ -371,12 +411,11 @@ public sealed class MainForm : Form
                     Field = field, Original = text, Enc = enc,
                 };
                 e.Key = e.FormID + "|" + field;
-                e.English = keep.TryGetValue(e.Key, out var k) ? k : (e.IsForeign ? "" : text);
-                all.Add(e);
+                e.English = keep != null && keep.TryGetValue(e.Key, out var k) ? k : (e.IsForeign ? "" : text);
+                list.Add(e);
             }
         }
-        ApplyFilter();
-        UpdateTitle();
+        return list;
     }
 
     void ApplyFilter()
@@ -443,8 +482,9 @@ public sealed class MainForm : Form
             {
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                var sz = TextRenderer.MeasureText(g, s, Theme.Small, Size.Empty, TextFormatFlags.NoPadding);
-                int w = Math.Min(sz.Width + 22, e.CellBounds.Width - 12), h = 20;
+                if (!pillWidth.TryGetValue(s, out int tw))
+                    pillWidth[s] = tw = TextRenderer.MeasureText(g, s, Theme.Small, Size.Empty, TextFormatFlags.NoPadding).Width;
+                int w = Math.Min(tw + 22, e.CellBounds.Width - 12), h = 20;
                 var r = new RectangleF(e.CellBounds.X + 8, e.CellBounds.Y + (e.CellBounds.Height - h) / 2f, w, h);
                 Theme.FillRound(g, Theme.Mix(Theme.Bg, c, 0.22f), r, h / 2f);
                 using (var dot = new SolidBrush(c)) g.FillEllipse(dot, r.X + 8, r.Y + h / 2f - 3, 6, 6);
@@ -476,12 +516,26 @@ public sealed class MainForm : Form
         if (s.Length > 0) Clipboard.SetText(s);
     }
 
+    int nForeign, nChanged, nBad;
+
+    void Count()
+    {
+        nForeign = nChanged = nBad = 0;
+        foreach (var e in all)
+        {
+            bool ch = e.Changed;
+            if (ch) nChanged++;
+            else if (e.IsForeign) nForeign++;
+            if (!e.Valid) nBad++;
+        }
+    }
+
     void UpdateStatus()
     {
         if (plugin == null) return;
-        int foreign = all.Count(e => e.IsForeign), changed = all.Count(e => e.Changed), bad = all.Count(e => !e.Valid);
+        Count();
         status.Text = $"Showing {view.Count:N0} of {all.Count:N0} texts" +
-                      (bad > 0 ? $"   ·   {bad} with characters an English game cannot show (red)" : "");
+                      (nBad > 0 ? $"   ·   {nBad} with characters an English game cannot show (red)" : "");
         UpdateTitle();
         UpdateCards();
     }
@@ -490,14 +544,22 @@ public sealed class MainForm : Form
     {
         bool p = plugin != null;
         cardAll.Set(p ? all.Count.ToString("N0") : "–", false);
-        cardForeign.Set(p ? all.Count(e => e.IsForeign && !e.Changed).ToString("N0") : "–", chkForeign.Checked && !chkChanged.Checked && p);
-        cardChanged.Set(p ? all.Count(e => e.Changed).ToString("N0") : "–", chkChanged.Checked && p);
-        cardBad.Set(p ? all.Count(e => !e.Valid).ToString("N0") : "–", p && all.Any(e => !e.Valid));
+        cardForeign.Set(p ? nForeign.ToString("N0") : "–", chkForeign.Checked && !chkChanged.Checked && p);
+        cardChanged.Set(p ? nChanged.ToString("N0") : "–", chkChanged.Checked && p);
+        cardBad.Set(p ? nBad.ToString("N0") : "–", p && nBad > 0);
+    }
+
+    void UpdateEngineLabel()
+    {
+        string text = settings.EngineSummary(out bool ready);
+        engineLabel.Text = (ready ? "● " : "○ ") + text;
+        engineLabel.ForeColor = ready ? Theme.Changed : Theme.Foreign;
+        if (AppSettings.NameOf(settings.Engine) != cboEngine.SelectedItem as string) cboEngine.SelectedItem = AppSettings.NameOf(settings.Engine);
     }
 
     void UpdateTitle()
     {
-        bool dirty = plugin != null && all.Any(e => e.Changed);
+        bool dirty = plugin != null && nChanged > 0;
         string name = plugin == null ? "" : " - " + System.IO.Path.GetFileName(plugin.Path) + (dirty ? " *" : "");
         Text = "ESPLanguage_EN" + name;
         lblFile.Text = plugin == null ? "No plugin loaded  —  drop a .esp, .esm or .esl below"
@@ -508,7 +570,7 @@ public sealed class MainForm : Form
     void MainForm_KeyDown(object sender, KeyEventArgs e)
     {
         if (grid.IsCurrentCellInEditMode) return;
-        if (e.Control && e.KeyCode == Keys.S) { Save(plugin?.Path); e.Handled = true; }
+        if (e.Control && e.KeyCode == Keys.S) { _ = SaveAsync(plugin?.Path); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.O) { OpenDialog(); e.Handled = true; }
         else if (e.Control && e.KeyCode == Keys.F) { txtSearch.Focus(); e.Handled = true; }
         else if (e.KeyCode == Keys.F5) { _ = TranslateAsync(Selected()); e.Handled = true; }
@@ -547,27 +609,29 @@ public sealed class MainForm : Form
         list = list.Where(e => e.IsForeign).ToList();
         if (list.Count == 0)
         {
-            status.Text = "Nothing to translate: select rows that are not English (yellow).";
+            status.Text = "Nothing to translate: select rows that are not English (amber).";
             return;
         }
-        string lang = Langs[Math.Max(0, cboLang.SelectedIndex)].Code;
-        tr.Engine = cboEngine.SelectedItem as string ?? Translator.Engines[0];
-        tr.ApiKey = apiKey;
-        tr.LocalUrl = localUrl;
-        tr.LocalModel = localModel;
-        tr.ClaudeKey = claudeKey;
-        tr.ClaudeModel = claudeModel;
+        settings.EngineSummary(out bool ready);
+        if (!ready)
+        {
+            if (MessageBox.Show(this, AppSettings.NameOf(settings.Engine) + " is not set up yet (no API key).\n\nOpen its settings now?", Text,
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                OpenSettings(settings.Engine);
+            return;
+        }
+        tr.S = settings;
         SetBusy(true);
         try
         {
             var progress = new Progress<string>(s => status.Text = s);
-            var (res, error) = await tr.TranslateAsync(list.Select(e => e.Original).ToList(), lang, chkTitle.Checked, progress);
+            var (res, error) = await tr.TranslateAsync(list.Select(e => e.Original).ToList(), settings.Lang, settings.TitleCase, progress);
             int done = 0;
             for (int i = 0; i < list.Count; i++)
                 if (!string.IsNullOrEmpty(res[i])) { list[i].English = res[i]; done++; }
             grid.Refresh();
             UpdateStatus();
-            status.Text = $"Auto EN: {done} of {list.Count} translated. " + status.Text;
+            status.Text = $"Auto EN ({AppSettings.NameOf(settings.Engine)}): {done} of {list.Count} translated. " + status.Text;
             if (error != null)
                 MessageBox.Show(this, "Translation stopped: " + error + "\n\nTexts translated so far are kept.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
@@ -581,117 +645,70 @@ public sealed class MainForm : Form
         }
     }
 
+    // ---------------------------------------------------------------- glossary
+    // Notepad opens on its own; the window is not blocked. The glossary is reloaded when you come back.
     void OpenGlossary()
     {
-        string g = System.IO.Path.Combine(BaseDir, Translator.GlossaryFile);
+        if (tr == null) return;
         try
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe", "\"" + g + "\"") { UseShellExecute = true })?.WaitForExit();
-            tr = new Translator(BaseDir);
-            status.Text = $"Glossary reloaded: {tr.Glossary.Count} words.";
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("notepad.exe", "\"" + tr.GlossaryPath + "\"") { UseShellExecute = true });
+            status.Text = "Glossary opened in Notepad. Save it there; it is reloaded when you come back to this window.";
         }
         catch (Exception ex) { MessageBox.Show(this, ex.Message, Text); }
     }
 
-    void EngineSettings()
+    DateTime GlossaryTime()
     {
-        using var f = new Form
+        try { return tr == null ? default : File.GetLastWriteTimeUtc(tr.GlossaryPath); }
+        catch { return default; }
+    }
+
+    void ReloadGlossaryIfChanged()
+    {
+        if (tr == null) return;
+        var t = GlossaryTime();
+        if (t == glossaryStamp) return;
+        glossaryStamp = t;
+        try
         {
-            Text = "Engine settings", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
-            ClientSize = new Size(560, 540), MaximizeBox = false, MinimizeBox = false, Font = Font, ShowInTaskbar = false,
-        };
-        Label Head(string t, int top) => new() { Text = t, Left = 16, Top = top, AutoSize = true, Font = Theme.UiBold };
-        Label Note(string t, int top, int h) => new() { Text = t, Left = 16, Top = top, Width = 528, Height = h };
+            tr.ReloadGlossary();
+            status.Text = $"Glossary reloaded: {tr.Glossary.Count} words.";
+        }
+        catch (Exception ex) { status.Text = "Glossary not reloaded: " + ex.Message; }
+    }
 
-        var h1 = Head("API key  ·  DeepL / Google Cloud", 14);
-        var n1 = Note("DeepL: deepl.com → API → \"DeepL API Free\" → Account → API key (ends with :fx).\n" +
-                      "Google Cloud: console.cloud.google.com → Cloud Translation API → Credentials → API key.", 38, 36);
-        var key = new TextBox { Left = 16, Top = 78, Width = 528, Text = apiKey, UseSystemPasswordChar = true };
-
-        var h3 = Head("Claude  ·  Anthropic API", 124);
-        var n3 = Note("console.anthropic.com → API keys → Create key (paid per use). Opus 5.5 = best quality, Haiku 5.5 = much cheaper.", 148, 20);
-        var ck = new Label { Text = "API key", Left = 16, Top = 176, AutoSize = true };
-        var ckey = new TextBox { Left = 110, Top = 172, Width = 434, Text = claudeKey, UseSystemPasswordChar = true };
-        var cm = new Label { Text = "Model", Left = 16, Top = 210, AutoSize = true };
-        var cmodel = new ComboBox { Left = 110, Top = 206, Width = 300, Text = claudeModel, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat };
-        cmodel.Items.AddRange(ClaudeEngine.Models);
-
-        const int dy = 130;   // Local AI block below the Claude block
-        var h2 = Head("Local AI  ·  Ollama / LM Studio / llama.cpp (offline, free)", 124 + dy);
-        var n2 = Note("Ollama: install from ollama.com, then in a terminal:  ollama pull qwen2.5:7b\n" +
-                      "LM Studio: load a model → Developer → Start server, URL http://localhost:1234/v1\n" +
-                      "Good for Korean / Chinese / Japanese → English: Qwen 2.5 (7B or 14B). Llama works too.", 148 + dy, 52);
-        var lu = new Label { Text = "Server URL", Left = 16, Top = 212 + dy, AutoSize = true };
-        var url = new TextBox { Left = 110, Top = 208 + dy, Width = 434, Text = localUrl };
-        var lm = new Label { Text = "Model", Left = 16, Top = 248 + dy, AutoSize = true };
-        var model = new ComboBox { Left = 110, Top = 244 + dy, Width = 300, Text = localModel, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat };
-        var find = new Button { Text = "Find models", Left = 420, Top = 242 + dy, Width = 124 };
-        var info = new Label { Left = 110, Top = 280 + dy, Width = 434, Height = 40, ForeColor = Theme.TextFaint };
-        find.Click += async (_, _) =>
-        {
-            find.Enabled = false;
-            info.ForeColor = Theme.TextDim;
-            info.Text = "Asking " + url.Text.Trim() + " ...";
-            try
-            {
-                var t = new Translator(BaseDir) { LocalUrl = url.Text };
-                var names = await t.LocalModels();
-                model.Items.Clear();
-                model.Items.AddRange(names.ToArray());
-                if (names.Count > 0 && !names.Contains(model.Text)) model.Text = names[0];
-                info.ForeColor = Theme.Changed;
-                info.Text = names.Count > 0 ? $"Connected. {names.Count} model(s) found." : "Connected, but the server has no model yet (ollama pull qwen2.5:7b).";
-                if (names.Count > 0) model.DroppedDown = true;
-            }
-            catch (Exception ex)
-            {
-                info.ForeColor = Theme.Invalid;
-                info.Text = "Cannot connect: " + ex.Message;
-            }
-            finally { find.Enabled = true; }
-        };
-
-        var ok = new Button { Text = "Save", Left = 362, Top = 352 + dy, Width = 88, DialogResult = DialogResult.OK };
-        var cancel = new Button { Text = "Cancel", Left = 456, Top = 352 + dy, Width = 88, DialogResult = DialogResult.Cancel };
-        var foot = new Label { Text = "Saved in ESPLanguage_EN.ini next to the exe.", Left = 16, Top = 358 + dy, AutoSize = true };
-        f.Controls.AddRange(new Control[] { h1, n1, key, h3, n3, ck, ckey, cm, cmodel, h2, n2, lu, url, lm, model, find, info, foot, ok, cancel });
-        Theme.Apply(f);
-        foreach (var hl in new[] { h1, h2, h3 }) hl.ForeColor = Theme.Text;
-        cmodel.BackColor = Theme.Surface2;
-        info.ForeColor = Theme.TextFaint;
-        foot.ForeColor = Theme.TextFaint;
-        model.BackColor = Theme.Surface2;
-        ok.BackColor = Theme.Accent;
-        ok.ForeColor = Color.White;
-        ok.FlatAppearance.BorderColor = Theme.Accent;
-        ok.FlatAppearance.MouseOverBackColor = Theme.AccentHover;
-        f.HandleCreated += (_, _) => Theme.DarkTitleBar(f);
-        f.AcceptButton = ok;
-        f.CancelButton = cancel;
-        if (f.ShowDialog(this) != DialogResult.OK) return;
-        apiKey = key.Text.Trim();
-        claudeKey = ckey.Text.Trim();
-        claudeModel = string.IsNullOrWhiteSpace(cmodel.Text) ? ClaudeEngine.DefaultModel : cmodel.Text.Trim();
-        localUrl = string.IsNullOrWhiteSpace(url.Text) ? Translator.DefaultLocalUrl : url.Text.Trim();
-        localModel = string.IsNullOrWhiteSpace(model.Text) ? Translator.DefaultLocalModel : model.Text.Trim();
-        SaveIni();
-        status.Text = "Engine settings saved.";
+    // ---------------------------------------------------------------- settings
+    void OpenSettings(EngineKind? page = null)
+    {
+        if (busy) return;
+        using var f = new SettingsForm(settings, page);
+        if (f.ShowDialog(this) != DialogResult.OK || f.Result == null) return;
+        var old = settings;
+        settings = f.Result;
+        settings.Save();
+        if (tr != null) tr.S = settings;
+        chkDesc.Checked = settings.IncludeDesc;
+        UpdateEngineLabel();
+        status.Text = "Settings saved.";
+        if (plugin != null && (old.TextMode != settings.TextMode || old.IncludeDesc != settings.IncludeDesc)) _ = RebuildAsync();
     }
 
     // ---------------------------------------------------------------- save
     void SaveAs()
     {
-        if (plugin == null) return;
+        if (plugin == null || busy) return;
         using var d = new SaveFileDialog
         {
             Filter = "Skyrim plugins (*.esp;*.esm;*.esl)|*.esp;*.esm;*.esl|All files (*.*)|*.*",
             FileName = System.IO.Path.GetFileName(plugin.Path),
             InitialDirectory = System.IO.Path.GetDirectoryName(plugin.Path),
         };
-        if (d.ShowDialog(this) == DialogResult.OK) Save(d.FileName);
+        if (d.ShowDialog(this) == DialogResult.OK) _ = SaveAsync(d.FileName);
     }
 
-    bool Save(string target)
+    // building a 17 MB plugin and writing it (plus the backup) runs in the background
+    async Task<bool> SaveAsync(string target)
     {
         if (plugin == null || busy || string.IsNullOrEmpty(target)) return false;
         grid.EndEdit();
@@ -709,47 +726,73 @@ public sealed class MainForm : Form
         var good = changed.Where(e => e.Valid).ToList();
         var oldData = good.Select(e => e.Sub.Data).ToList();
         foreach (var e in good) { e.Sub.Data = TextCodec.Encode(e.English); e.Rec.Dirty = true; }
+        SetBusy(true);
+        status.Text = "Saving " + System.IO.Path.GetFileName(target) + " ...";
         string backup = null;
         try
         {
-            var bytes = plugin.ToBytes();
-            if (File.Exists(target))
+            var p = plugin;
+            backup = await Task.Run(() =>
             {
-                string bdir = System.IO.Path.Combine(BaseDir, "backups");
-                Directory.CreateDirectory(bdir);
-                backup = System.IO.Path.Combine(bdir, System.IO.Path.GetFileNameWithoutExtension(target) + "_" +
-                    DateTime.Now.ToString("yyyyMMdd_HHmmss") + System.IO.Path.GetExtension(target));
-                File.Copy(target, backup, true);
-            }
-            File.WriteAllBytes(target, bytes);       // in place: under MO2 the file stays in its mod folder
+                var bytes = p.ToBytes();
+                string bk = null;
+                if (File.Exists(target))
+                {
+                    string bdir = System.IO.Path.Combine(BaseDir, "backups");
+                    Directory.CreateDirectory(bdir);
+                    bk = System.IO.Path.Combine(bdir, System.IO.Path.GetFileNameWithoutExtension(target) + "_" +
+                        DateTime.Now.ToString("yyyyMMdd_HHmmss") + System.IO.Path.GetExtension(target));
+                    File.Copy(target, bk, true);
+                }
+                File.WriteAllBytes(target, bytes);       // in place: under MO2 the file stays in its mod folder
+                return bk;
+            });
         }
         catch (Exception ex)
         {
             for (int i = 0; i < good.Count; i++) { good[i].Sub.Data = oldData[i]; good[i].Rec.Dirty = true; }
-            MessageBox.Show(this, "Save failed:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            SetBusy(false);
+            status.Text = "Save failed.";
+            MessageBox.Show(this, "Save failed:\n" + ex.Message + "\n\nIs the plugin open in xEdit or the game?", Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
             return false;
         }
+        SetBusy(false);
         foreach (var e in good)
         {
             e.Original = e.English;
             e.Enc = e.English.All(c => c < 0x80) ? "ASCII" : "1252";
         }
         plugin.Path = target;
-        lastDir = System.IO.Path.GetDirectoryName(target);
+        settings.LastDir = System.IO.Path.GetDirectoryName(target);
+        settings.Save();
         ApplyFilter();
         status.Text = $"Saved {good.Count} text(s) to {System.IO.Path.GetFileName(target)}" +
                       (backup != null ? $"  (backup: backups\\{System.IO.Path.GetFileName(backup)})" : "") + ".  " + status.Text;
         return true;
     }
 
-    bool ConfirmDiscard()
+    async Task<bool> ConfirmDiscardAsync()
     {
         if (plugin == null || !all.Any(e => e.Changed)) return true;
         var r = MessageBox.Show(this, "Save the changes to " + System.IO.Path.GetFileName(plugin.Path) + "?", Text,
             MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
         if (r == DialogResult.Cancel) return false;
-        if (r == DialogResult.Yes) return Save(plugin.Path);
+        if (r == DialogResult.Yes) return await SaveAsync(plugin.Path);
         return true;
+    }
+
+    void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+    {
+        if (closeAfterSave) { settings.Save(); return; }
+        if (busy) { e.Cancel = true; status.Text = "Please wait: still working."; return; }
+        if (plugin == null || !all.Any(x => x.Changed)) { settings.Save(); return; }
+        e.Cancel = true;                                   // ask, save in the background, then close
+        BeginInvoke(async () =>
+        {
+            if (!await ConfirmDiscardAsync()) return;
+            closeAfterSave = true;
+            Close();
+        });
     }
 
     // ---------------------------------------------------------------- TSV
@@ -794,43 +837,5 @@ public sealed class MainForm : Form
         }
         ApplyFilter();
         status.Text = $"Imported {n} English text(s)" + (miss > 0 ? $", {miss} line(s) not found in this plugin" : "") + ".  " + status.Text;
-    }
-
-    // ---------------------------------------------------------------- ini
-    void LoadIni()
-    {
-        if (!File.Exists(IniPath)) return;
-        foreach (var line in File.ReadAllLines(IniPath))
-        {
-            int i = line.IndexOf('=');
-            if (i <= 0) continue;
-            string k = line[..i].Trim(), v = line[(i + 1)..].Trim();
-            switch (k)
-            {
-                case "LastDir": lastDir = v; break;
-                case "Lang": if (cboLang.Items.Contains(v)) cboLang.SelectedItem = v; break;
-                case "TitleCase": chkTitle.Checked = v == "1"; break;
-                case "Desc": chkDesc.Checked = v == "1"; break;
-                case "Engine": if (cboEngine.Items.Contains(v)) cboEngine.SelectedItem = v; break;
-                case "ApiKey": apiKey = v; break;
-                case "LocalUrl": if (v.Length > 0) localUrl = v; break;
-                case "LocalModel": if (v.Length > 0) localModel = v; break;
-                case "ClaudeKey": claudeKey = v; break;
-                case "ClaudeModel": if (v.Length > 0) claudeModel = v; break;
-            }
-        }
-    }
-
-    void SaveIni()
-    {
-        try
-        {
-            File.WriteAllLines(IniPath, new[]
-            {
-                "LastDir=" + lastDir, "Lang=" + cboLang.SelectedItem, "TitleCase=" + (chkTitle.Checked ? 1 : 0), "Desc=" + (chkDesc.Checked ? 1 : 0),
-                "Engine=" + cboEngine.SelectedItem, "ApiKey=" + apiKey, "LocalUrl=" + localUrl, "LocalModel=" + localModel, "ClaudeKey=" + claudeKey, "ClaudeModel=" + claudeModel,
-            });
-        }
-        catch { }
     }
 }
