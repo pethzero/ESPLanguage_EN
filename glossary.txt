@@ -44,6 +44,7 @@
 팔찌 = Bracelet
 양말 = Socks
 속바지 = Shorts
+드래곤 = Dragon
 
 # Chinese
 假发 = Wig

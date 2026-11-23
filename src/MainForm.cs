@@ -210,6 +210,9 @@ public sealed class MainForm : Form
         menu.Items.Add("Auto EN", Theme.Glyph('', Theme.Text), (_, _) => _ = TranslateAsync(Selected()));
         menu.Items.Add("Translate again (ignore cache)", Theme.Glyph('', Theme.Text), (_, _) => _ = TranslateAsync(Selected(), again: true))
             .ToolTipText = "Ask the engine again for the selected rows, even if a result is in translation_cache.txt (fixes wrong cached results). glossary.txt still wins.";
+        menu.Items.Add("Name this set…", Theme.Glyph('', Theme.Text), (_, _) => NameSets())
+            .ToolTipText = "Give the set name before \" - \" an English name (suggested: in English letters, 요대선몽 → Yodaeseonmong). " +
+                           "Saved in glossary.txt; every row of the set is translated again.";
         menu.Items.Add("Original → English", Theme.Glyph('', Theme.Text), (_, _) => ForSelected(e => e.English = e.Original));
         menu.Items.Add("Revert", Theme.Glyph('', Theme.Text), (_, _) => ForSelected(e => e.English = e.IsForeign ? "" : e.Original));
         menu.Items.Add(new ToolStripSeparator());
@@ -645,6 +648,84 @@ public sealed class MainForm : Form
         {
             SetBusy(false);
         }
+    }
+
+    // ---------------------------------------------------------------- set names
+    // the set names of the selected rows -> one editable line each (suggestion: Latin letters, or the glossary entry)
+    void NameSets()
+    {
+        if (busy || plugin == null || tr == null) return;
+        grid.EndEdit();
+        var sets = Selected().Select(e => Translator.SetNameOf(e.Original)).Where(x => x != null).Distinct().ToList();
+        if (sets.Count == 0)
+        {
+            MessageBox.Show(this, "The selected rows have no set name: it is the part before \" - \", as in \"요대선몽 - 소매\".", Text,
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var f = new Form
+        {
+            Text = "Name this set", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = false, Font = Font, BackColor = Theme.Bg, ForeColor = Theme.Text,
+            ClientSize = new Size(620, 150 + sets.Count * 40),
+        };
+        f.HandleCreated += (_, _) => Theme.DarkTitleBar(f);
+        var intro = new Label
+        {
+            Left = 16, Top = 14, Width = 588, Height = 52, ForeColor = Theme.TextDim,
+            Text = "An invented set name has no meaning to translate. Keep the suggestion (the name in English letters) or type your own English name. " +
+                   "It goes into glossary.txt, so every piece of the set, now and in other plugins, gets the same name.",
+        };
+        f.Controls.Add(intro);
+        var boxes = new List<(string Set, TextBox Box)>();
+        int y = 74;
+        foreach (var set in sets)
+        {
+            string suggestion = tr.Glossary.TryGetValue(set, out var g) ? g : Romanizer.HasHangul(set) ? Romanizer.Name(set) : "";
+            f.Controls.Add(new Label { Text = set, Left = 16, Top = y + 4, Width = 190, AutoEllipsis = true, ForeColor = Theme.Text });
+            var box = new TextBox { Text = suggestion, Left = 216, Top = y, Width = 388, BorderStyle = BorderStyle.FixedSingle, BackColor = Theme.Surface2, ForeColor = Theme.Text };
+            f.Controls.Add(box);
+            boxes.Add((set, box));
+            y += 40;
+        }
+        var ok = new Button { Text = "Save and translate", Width = 160, Height = 32, Left = 336, Top = y + 14, DialogResult = DialogResult.OK };
+        var cancel = new Button { Text = "Cancel", Width = 100, Height = 32, Left = 504, Top = y + 14, DialogResult = DialogResult.Cancel };
+        foreach (var b in new[] { ok, cancel })
+        {
+            b.FlatStyle = FlatStyle.Flat;
+            b.BackColor = b == ok ? Theme.Accent : Theme.Surface2;
+            b.ForeColor = b == ok ? Color.White : Theme.Text;
+            b.FlatAppearance.BorderColor = b == ok ? Theme.Accent : Theme.Border;
+        }
+        f.Controls.AddRange(new Control[] { ok, cancel });
+        f.AcceptButton = ok;
+        f.CancelButton = cancel;
+        if (f.ShowDialog(this) != DialogResult.OK) return;
+
+        var named = new List<string>();
+        try
+        {
+            foreach (var (set, box) in boxes)
+            {
+                string en = box.Text.Trim();
+                if (en.Length == 0) continue;
+                if (!TextCodec.CanWrite(en))
+                {
+                    MessageBox.Show(this, $"\"{en}\" has characters an English game cannot show. Use English letters.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                tr.SetGlossary(set, en);
+                named.Add(set);
+            }
+            glossaryStamp = GlossaryTime();
+        }
+        catch (Exception ex) { MessageBox.Show(this, "Could not write glossary.txt: " + ex.Message, Text); return; }
+        if (named.Count == 0) return;
+        // every row of these sets, not only the selected ones
+        var rows = all.Where(e => e.IsForeign && named.Contains(Translator.SetNameOf(e.Original))).ToList();
+        status.Text = $"Named {named.Count} set(s) in glossary.txt; translating {rows.Count} row(s) ...";
+        _ = TranslateAsync(rows);
     }
 
     // ---------------------------------------------------------------- glossary

@@ -49,6 +49,7 @@ public sealed class AppSettings
     public bool TitleCase = true;
     public string TextMode = "Auto";             // TextCodec.Modes
     public bool IncludeDesc;
+    public bool RomanizeSetNames;                // "요대선몽 - 소매" -> "Yodaeseonmong - Sleeves"
     public string LastDir = "";
 
     // engines
@@ -81,6 +82,7 @@ public sealed class AppSettings
                 case "TitleCase": s.TitleCase = v == "1"; break;
                 case "TextMode": if (TextCodec.Modes.Contains(v)) s.TextMode = v; break;
                 case "Desc": s.IncludeDesc = v == "1"; break;
+                case "SetNames": s.RomanizeSetNames = v == "romanize"; break;
                 case "LastDir": s.LastDir = v; break;
                 case "DeepLKey": s.DeepLKey = v; break;
                 case "GoogleKey": s.GoogleKey = v; break;
@@ -126,6 +128,7 @@ public sealed class AppSettings
                 "TitleCase=" + (TitleCase ? 1 : 0),
                 "TextMode=" + TextMode,
                 "Desc=" + (IncludeDesc ? 1 : 0),
+                "SetNames=" + (RomanizeSetNames ? "romanize" : "translate"),
                 "LastDir=" + LastDir,
                 "",
                 "[DeepL]", "DeepLKey=" + DeepLKey,

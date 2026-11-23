@@ -70,6 +70,29 @@ public sealed class Translator
 
     public string GlossaryPath => System.IO.Path.Combine(dir, GlossaryFile);
 
+    // "Name this set…": write  source = English  into glossary.txt (replaces an existing line for the same source)
+    public void SetGlossary(string source, string english)
+    {
+        var lines = File.Exists(GlossaryPath) ? File.ReadAllLines(GlossaryPath, Encoding.UTF8).ToList() : new List<string>();
+        int at = lines.FindIndex(l => !l.TrimStart().StartsWith("#") && l.Contains('=') && l[..l.IndexOf('=')].Trim() == source);
+        string line = source + " = " + english;
+        if (at >= 0) lines[at] = line;
+        else
+        {
+            const string head = "# Set names (Name this set…)";
+            int h = lines.IndexOf(head);
+            if (h < 0) { if (lines.Count > 0 && lines[^1].Length > 0) lines.Add(""); lines.Add(head); lines.Add(line); }
+            else
+            {
+                int end = h + 1;
+                while (end < lines.Count && lines[end].Trim().Length > 0) end++;
+                lines.Insert(end, line);
+            }
+        }
+        File.WriteAllLines(GlossaryPath, lines, new UTF8Encoding(true));
+        Glossary[source] = english;
+    }
+
     public void ReloadGlossary()
     {
         Glossary.Clear();
@@ -100,9 +123,22 @@ public sealed class Translator
         return han ? "zh-CN" : "auto";
     }
 
+    // set names written in Latin letters for this call (Settings: "Romanize set names")
+    readonly Dictionary<string, string> romanized = new();
+
+    // "성홍렵야 - 드레스 A" -> "성홍렵야": the Korean part before the first " - " (set name of an outfit mod)
+    public static string SetNameOf(string text)
+    {
+        int dash = text.IndexOf(" - ", StringComparison.Ordinal);
+        if (dash <= 0) return null;
+        var runs = Run.Matches(text[..dash]).Select(m => m.Value.Trim()).Where(r => r.Length > 0).ToList();
+        return runs.Count > 0 ? runs[^1] : null;
+    }
+
     string Known(string run)
     {
         if (Glossary.TryGetValue(run, out var g)) return g;
+        if (romanized.TryGetValue(run, out var rn)) return rn;
         if (Cache.TryGetValue(run, out var c)) return c;
         // every word is in the glossary -> join them
         var words = run.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -118,6 +154,12 @@ public sealed class Translator
         if (ignoreCache)                                  // "Translate again": forget earlier engine results (glossary still wins)
             foreach (var r in runsPerText.SelectMany(x => x))
                 if (Cache.Remove(r)) cacheDirty = true;
+        romanized.Clear();
+        if (S.RomanizeSetNames)                           // set names have no meaning to translate: write them in Latin letters
+            foreach (var t in texts)
+                // one word only: an invented set name ("요대선몽"), not a phrase with meaning ("강화 형태")
+                if (SetNameOf(t) is { } set && Romanizer.HasHangul(set) && !set.Contains(' ') && !Glossary.ContainsKey(set))
+                    romanized[set] = Romanizer.Name(set);
         var todo = runsPerText.SelectMany(r => r).Distinct().Where(r => Known(r) == null).ToList();
         string error = null;
 
@@ -310,7 +352,10 @@ public sealed class Translator
 
     static string AiSystem(string lang) =>
         $"You translate names from a Skyrim game mod (items, armor, spells, effects, NPCs) from {LangName(lang)} to English.\n" +
-        "Rules: short natural English game names in Title Case; keep proper names (transliterate them); no notes, no quotes, " +
+        "Rules: short natural English game names in Title Case; no notes, no quotes, " +
+        "Names with no clear meaning (outfit set names, character names, invented words) are NOT translated: write them " +
+        "in Latin letters instead (Korean: Revised Romanization, e.g. 요대선몽 -> Yodaeseonmong; Chinese: pinyin; " +
+        "Japanese: Hepburn). Never guess a meaning for them. " +
         "no explanations. You get a JSON array of strings. Reply with ONLY a JSON array of the English strings, " +
         "same count and same order.";
 

@@ -36,7 +36,7 @@ public sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = MinimizeBox = false;
         ShowInTaskbar = false;
-        ClientSize = new Size(880, 660);
+        ClientSize = new Size(880, 760);
         Font = Theme.Ui;
         BackColor = Theme.Bg;
         ForeColor = Theme.Text;
@@ -164,7 +164,7 @@ public sealed class SettingsForm : Form
     // ------------------------------------------------------------ pages
     readonly Dictionary<EngineKind, Action> collectors = new();
     ComboBox cboLang, cboText;
-    CheckBox chkTitle, chkDesc;
+    CheckBox chkTitle, chkDesc, chkRoman;
 
     Panel GeneralPage()
     {
@@ -182,6 +182,17 @@ public sealed class SettingsForm : Form
         f.Row("Translate from", cboLang);
         chkTitle = new CheckBox { Text = "Title Case  (\"Cherry Blossom Wig\" instead of \"cherry blossom wig\")", Checked = s.TitleCase, AutoSize = true, ForeColor = Theme.Text };
         f.Row("", chkTitle);
+        chkRoman = new CheckBox
+        {
+            Text = "Write them in English letters  (요대선몽 → Yodaeseonmong)",
+            Checked = s.RomanizeSetNames, AutoSize = true, ForeColor = Theme.Text,
+        };
+        f.Row("Set names", chkRoman);
+        var romanNote = Note("For outfit mods named \"set name - item\" (요대선몽 - 소매 → Yodaeseonmong - Sleeves): a one-word Korean " +
+                   "set name before \" - \" is written in English letters, because engines guess wrong meanings for invented names. " +
+                   "glossary.txt still wins. Right-click a row → \"Name this set…\" to give a set your own English name.", 92);
+        romanNote.Width = W - 130;
+        f.Add(romanNote, 12, 130);
 
         f.Section("Reading the plugin");
         cboText = Combo(200);
@@ -443,6 +454,7 @@ public sealed class SettingsForm : Form
         s.Engine = AppSettings.KindByName(cboEngine.SelectedItem as string, s.Engine);
         s.Lang = AppSettings.Langs[Math.Max(0, cboLang.SelectedIndex)].Code;
         s.TitleCase = chkTitle.Checked;
+        s.RomanizeSetNames = chkRoman.Checked;
         s.TextMode = cboText.SelectedItem as string ?? "Auto";
         s.IncludeDesc = chkDesc.Checked;
         foreach (var c in collectors.Values) c();

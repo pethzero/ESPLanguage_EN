@@ -57,12 +57,26 @@ Close xEdit and the game before saving a plugin they have open.
 Export / Import save the visible rows as a TSV file, translate the English column anywhere (Excel, ChatGPT, Claude...) and read it back. Rows match by FormID + field.
 `glossary.txt` holds your own words (`가발 = Wig`), used before any engine; Notepad opens it and the glossary is reloaded when you come back to the window. Engine results are kept in `translation_cache.txt`, so a name is never translated twice.
 
+### Set names of outfit mods
+Outfit mods are often named `set name - item` (`요대선몽 - 소매`). The item part translates fine, but the set name is
+usually an invented name with no meaning, and engines guess one (NLLB made 성홍렵야 "The Holy Grail"). The program
+splits the name at ` - ` and `:` so the two parts are translated separately, and gives you two ways to handle set names:
+
+- **Settings → General → Set names: Write them in English letters.** A one-word Korean set name is written in Latin
+  letters (Revised Romanization) instead of translated: `요대선몽 - 소매` → `Yodaeseonmong - Sleeves`,
+  `성홍렵야 - 목 장식` → `Seonghongnyeobya - Neck Ornament`. Phrases with a space (`강화 형태 - 기본`) are still translated.
+- **Right-click a row → Name this set…** Shows each set name with the romanized name as a suggestion; keep it or type your
+  own English name. It is saved in `glossary.txt`, and every row of that set is translated again.
+
+Claude and Local AI are also told to write such names in Latin letters instead of guessing a meaning.
+**Right-click → Translate again (ignore cache)** replaces results that are already stored wrong in the cache.
+
 ### Settings
 One page per topic. Everything is saved in `ESPLanguage_EN.ini` next to the exe.
 
 | Page | What is on it |
 |---|---|
-| **General** | Engine for Auto EN · Translate from (Auto picks Korean / Japanese / Chinese by script) · Title Case · Text in file (decoding; *Auto* = UTF-8, then 949 / 936 / Big5 / 932) · Include DESC · buttons that open glossary.txt, the cache and the backups folder |
+| **General** | Engine for Auto EN · Translate from (Auto picks Korean / Japanese / Chinese by script) · Title Case · Set names in English letters · Text in file (decoding; *Auto* = UTF-8, then 949 / 936 / Big5 / 932) · Include DESC · buttons that open glossary.txt, the cache and the backups folder |
 | **Claude** | API key, model |
 | **Local AI** | Server URL (presets for Ollama and LM Studio), model, Find models |
 | **NLLB-200** | Server URL, server folder and a **Start server** button |
@@ -199,6 +213,12 @@ Source code is in `src/` (C# WinForms, no external packages).
 - **Export / Import:** ส่งออกเป็นไฟล์ TSV ไปแปลที่ไหนก็ได้ (Excel, ChatGPT, Claude) แล้วนำเข้ากลับ
 
 `glossary.txt` ใช้ใส่คำแปลของเราเอง เช่น `가발 = Wig` โปรแกรมจะใช้คำในไฟล์นี้ก่อนตัวแปลทุกตัว
+
+### ชื่อชุด (set name) ของมอดเสื้อผ้า
+มอดชุดมักตั้งชื่อแบบ `ชื่อชุด - ชิ้น` เช่น `요대선몽 - 소매` ส่วนชิ้น (소매 = Sleeves) แปลได้ แต่ชื่อชุดมักเป็นชื่อที่ผู้สร้างตั้งขึ้นเองและไม่มีความหมายให้แปล ตัวแปลจึงเดาผิด (NLLB แปล 성홍렵야 เป็น "The Holy Grail")
+- **Settings → General → Set names → Write them in English letters:** เขียนชื่อชุดเป็นตัวอักษรอังกฤษตามเสียงอ่านแทนการแปล เช่น `요대선몽 - 소매` → `Yodaeseonmong - Sleeves` (เฉพาะชื่อชุดที่เป็นคำเดียว ไม่มีช่องว่าง)
+- **คลิกขวาที่แถว → Name this set…:** โปรแกรมเสนอชื่อแบบตัวอักษรอังกฤษให้ จะใช้ตามนั้นหรือพิมพ์ชื่ออังกฤษเองก็ได้ ชื่อจะถูกบันทึกลง `glossary.txt` และทุกแถวของชุดนั้นจะถูกแปลใหม่ทันที
+- **คลิกขวา → Translate again (ignore cache):** แปลแถวที่เลือกใหม่ โดยไม่ใช้ผลเดิมที่เก็บไว้ใน cache (ใช้แก้ผลแปลเก่าที่ผิด)
 
 ### ข้อจำกัด
 - แก้ได้เฉพาะชื่อ (FULL) และคำอธิบาย (DESC)
