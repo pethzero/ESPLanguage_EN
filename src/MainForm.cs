@@ -208,6 +208,8 @@ public sealed class MainForm : Form
 
         var menu = new ContextMenuStrip { Renderer = renderer, ShowImageMargin = true };
         menu.Items.Add("Auto EN", Theme.Glyph('', Theme.Text), (_, _) => _ = TranslateAsync(Selected()));
+        menu.Items.Add("Translate again (ignore cache)", Theme.Glyph('', Theme.Text), (_, _) => _ = TranslateAsync(Selected(), again: true))
+            .ToolTipText = "Ask the engine again for the selected rows, even if a result is in translation_cache.txt (fixes wrong cached results). glossary.txt still wins.";
         menu.Items.Add("Original → English", Theme.Glyph('', Theme.Text), (_, _) => ForSelected(e => e.English = e.Original));
         menu.Items.Add("Revert", Theme.Glyph('', Theme.Text), (_, _) => ForSelected(e => e.English = e.IsForeign ? "" : e.Original));
         menu.Items.Add(new ToolStripSeparator());
@@ -602,7 +604,7 @@ public sealed class MainForm : Form
     }
 
     // ---------------------------------------------------------------- translate
-    async Task TranslateAsync(List<TextEntry> list)
+    async Task TranslateAsync(List<TextEntry> list, bool again = false)
     {
         if (busy || plugin == null || tr == null) return;
         grid.EndEdit();
@@ -625,7 +627,7 @@ public sealed class MainForm : Form
         try
         {
             var progress = new Progress<string>(s => status.Text = s);
-            var (res, error) = await tr.TranslateAsync(list.Select(e => e.Original).ToList(), settings.Lang, settings.TitleCase, progress);
+            var (res, error) = await tr.TranslateAsync(list.Select(e => e.Original).ToList(), settings.Lang, settings.TitleCase, progress, ignoreCache: again);
             int done = 0;
             for (int i = 0; i < list.Count; i++)
                 if (!string.IsNullOrEmpty(res[i])) { list[i].English = res[i]; done++; }

@@ -1,7 +1,12 @@
-﻿# ESPLanguage_EN glossary: your own translations, used before Google.
+﻿# ESPLanguage_EN glossary: your own translations, used before any engine.
 # One per line:  source = English
 # A whole name part ("벚꽃 밤의 환상") or single words (when every word of a part is listed, they are joined).
-# Edit this file freely, then press "Reload glossary" (or restart).
+# Names are split at " - " and ":", so "성홍렵야 - 드레스 A" looks up "성홍렵야" and "드레스" separately.
+# Edit this file freely (Glossary button); it is reloaded when you go back to the window.
+#
+# Set names of outfit mods are best added here by you, so every piece of the set gets the same name.
+# Engines often guess them wrong (NLLB turned 성홍렵야 into "The Holy Grail"). For example:
+#   성홍렵야 = Scarlet Hunt
 
 # Korean
 가발 = Wig
@@ -20,6 +25,25 @@
 목걸이 = Necklace
 귀걸이 = Earrings
 반지 = Ring
+헤어 = Hair
+하이힐 = High Heels
+힐 = Heels
+소매 = Sleeves
+목 장식 = Neck Ornament
+장식 = Ornament
+머리 장식 = Hair Ornament
+허리 장식 = Waist Ornament
+드레스 장식 = Dress Ornament
+상의 = Top
+하의 = Bottom
+바지 = Pants
+코트 = Coat
+망토 = Cloak
+베일 = Veil
+리본 = Ribbon
+팔찌 = Bracelet
+양말 = Socks
+속바지 = Shorts
 
 # Chinese
 假发 = Wig

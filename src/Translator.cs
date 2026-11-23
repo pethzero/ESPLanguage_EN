@@ -28,7 +28,13 @@ public sealed class Translator
     bool cacheDirty;
 
     static readonly HttpClient Http = CreateHttp();
-    static readonly Regex Run = new(@"[^\x00-\x7F](?:[^\x00-\x7F]|[\s\-_.,'&+/:0-9]+(?=[^\x00-\x7F]))*", RegexOptions.Compiled);
+    // A "run" = one piece sent to the engine. Foreign words joined by spaces, digits, commas or full stops stay
+    // together (a description is translated as whole sentences), but "set name - item" and "type: name" are split:
+    // "성홍렵야 - 드레스" -> "성홍렵야" + "드레스". Sent together, an engine that does not know the set name
+    // tends to drop the item ("The Holy Grail" for every piece of the set).
+    // Separators that are not ASCII (·, ：, —, ｜, ／ ...) end a run too; a hyphen inside a word ("드래곤-가드") does not.
+    const string Foreign = @"[^\x00-\x7F·–—―・／：｜～]";
+    static readonly Regex Run = new(Foreign + @"(?:" + Foreign + @"|(?:[\s_.,'&+0-9]|(?<=\S)-(?=\S))+(?=" + Foreign + "))*", RegexOptions.Compiled);
     static readonly string[] Small = { "a", "an", "and", "the", "of", "in", "on", "with", "for", "to", "or", "at", "by" };
 
     static HttpClient CreateHttp()
@@ -106,9 +112,12 @@ public sealed class Translator
     }
 
     public async Task<(string[] Results, string Error)> TranslateAsync(
-        IList<string> texts, string lang, bool titleCase, IProgress<string> progress)
+        IList<string> texts, string lang, bool titleCase, IProgress<string> progress, bool ignoreCache = false)
     {
         var runsPerText = texts.Select(t => Run.Matches(t).Select(m => m.Value.Trim()).ToList()).ToList();
+        if (ignoreCache)                                  // "Translate again": forget earlier engine results (glossary still wins)
+            foreach (var r in runsPerText.SelectMany(x => x))
+                if (Cache.Remove(r)) cacheDirty = true;
         var todo = runsPerText.SelectMany(r => r).Distinct().Where(r => Known(r) == null).ToList();
         string error = null;
 
